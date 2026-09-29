@@ -27,6 +27,7 @@ def lead_meta(ctx: SceneContext) -> dict | None:
     return {"cls": lead.cls_name, "distance_m": r(lead.distance_m), "closing_speed_mps": r(lead.closing_speed_mps),
             "ttc_s": r(lead.ttc_s), "cutting_in": lead.cutting_in}
 
+
 def split_for(group: str, val_percent: int = 20) -> str:
     """Deterministic train/val split by video group, so frames of one video never straddle splits."""
     bucket = int(hashlib.md5(group.encode()).hexdigest(), 16) % 100

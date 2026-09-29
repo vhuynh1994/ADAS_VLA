@@ -97,6 +97,7 @@ def sample_visual(rec: dict, cfg):
     prev = to_pil(Image.open(prev_path), cfg.vlm.image_max_side, cfg.vlm.image_size) if prev_path else image
     return [prev, image]
 
+
 def target_json(target: dict) -> str:
     """Canonical, compact serialization of the answer the VLM must learn to produce."""
     keys = ["longitudinal", "lateral", "target_speed_kmh", "risk", "reason"]

@@ -79,6 +79,7 @@ def visual_content(image) -> dict:
         return {"type": "video", "video": list(image)}
     return {"type": "image", "image": image}
 
+
 def decision_messages(image, context_text: str, ego_speed_kmh: float, cruise_speed_kmh: float,
                       language: str = "en") -> list[dict]:
     """Chat messages asking the VLM for a driving decision on one frame (or a [previous, current] pair)."""

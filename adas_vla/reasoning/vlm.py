@@ -167,6 +167,7 @@ def encode_messages(processor, messages: list[dict], add_generation_prompt: bool
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=add_generation_prompt)
     return processor(text=[text], images=images or None, videos=videos, return_tensors="pt")
 
+
 def load_model_and_processor(cfg: VLMConfig, for_training: bool = False):
     from transformers import AutoModelForImageTextToText, AutoProcessor
 

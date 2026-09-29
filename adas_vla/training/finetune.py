@@ -79,6 +79,7 @@ def sample_weight(rec: dict, brake_weight: float) -> float:
         braking = False
     return brake_weight if braking else 1.0
 
+
 def build_example(processor, rec: dict, cfg: Config) -> dict:
     """Tokenize one sample; loss is computed on the assistant answer only."""
     prompt = decision_messages(sample_visual(rec, cfg), rec["context"], rec["ego_speed_kmh"],
