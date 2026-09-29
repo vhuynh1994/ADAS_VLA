@@ -15,29 +15,34 @@ from ..types import VRU_CLASSES, Alert, DrivingDecision, LatAction, LongAction, 
 
 
 class _Latch:
-    """Activates an intervention once its trigger condition has held for `confirm_s` (target confirmation) and
-    keeps it active for `hold_s` after the condition last held (no flapping)."""
+    """Activates an intervention once its trigger condition has held for `confirm_s` (target confirmation; gaps up
+    to `gap_s` - detection dropouts - do not restart it) and keeps it active for `hold_s` after the condition last
+    held (no flapping). While active, every trigger extends it at once."""
 
     def __init__(self):
         self.until = -math.inf
         self.since: float | None = None  # start of the current run of triggered frames
+        self.off_since: float | None = None  # first untriggered frame after the run
         self.detail = ""
 
     def active(self, t: float) -> bool:
         return t <= self.until
 
-    def update(self, t: float, triggered: bool, hold_s: float, confirm_s: float = 0.0) -> bool:
+    def update(self, t: float, triggered: bool, hold_s: float, confirm_s: float = 0.0, gap_s: float = 0.0) -> bool:
         if not triggered:
-            self.since = None
-        elif self.since is None:
+            if self.off_since is None:
+                self.off_since = t
+            return t <= self.until
+        if self.since is None or (self.off_since is not None and t - self.off_since > gap_s + 1e-9):
             self.since = t
-        if triggered and t - self.since >= confirm_s - 1e-9:
+        self.off_since = None
+        if t <= self.until or t - self.since >= confirm_s - 1e-9:
             self.until = t + hold_s
         return t <= self.until
 
     def reset(self) -> None:
         self.until = -math.inf
-        self.since = None
+        self.since = self.off_since = None
         self.detail = ""
 
 
@@ -110,8 +115,9 @@ class SafetySupervisor:
         # 1. Longitudinal collision checks on the nearest in-path (or cutting-in) object. AEB and FCW are
         #    Schmitt triggers: once active they only release when the thresholds are cleared by `hysteresis`,
         #    and they stay active for `*_hold_s` after the last trigger, so one noisy frame cannot flap the brake.
-        #    AEB acts only once its trigger has held for `aeb_confirm_s` (FCW, which already decelerates, at once):
-        #    monocular phantoms - a one-off box, a TTC spike - rarely last that long, real threats do.
+        #    AEB acts only once its trigger has held for `aeb_confirm_s`, tolerating dropouts up to
+        #    `aeb_confirm_gap_s` (FCW, which already decelerates, acts at once): monocular phantoms - a one-off box,
+        #    a TTC spike - rarely last that long, real threats do.
         lead = ctx.lead_object()
         aeb_now = fcw_now = False
         if lead is not None and lead.distance_m is not None:
@@ -128,7 +134,7 @@ class SafetySupervisor:
                 self._aeb.detail = where + (f", TTC {ttc:.1f} s" if ttc is not None else "")
             if fcw_now:
                 self._fcw.detail = where
-        aeb = self._aeb.update(t, aeb_now, s.aeb_hold_s, s.aeb_confirm_s)
+        aeb = self._aeb.update(t, aeb_now, s.aeb_hold_s, s.aeb_confirm_s, s.aeb_confirm_gap_s)
         fcw = self._fcw.update(t, fcw_now, s.fcw_hold_s)
         if aeb:
             alerts.append(Alert("AEB", "Emergency brake: " + self._aeb.detail + ("" if aeb_now else " (holding)"),

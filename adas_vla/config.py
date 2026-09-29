@@ -111,7 +111,8 @@ class SafetyConfig:
     aeb_hold_s: float = 0.5
     fcw_hold_s: float = 1.0
     hysteresis: float = 1.3
-    aeb_confirm_s: float = 0.2  # AEB acts once triggered this long (target confirmation, see scripts/gate_replay.py)
+    aeb_confirm_s: float = 0.1  # AEB acts once triggered this long (target confirmation, see scripts/gate_replay.py)
+    aeb_confirm_gap_s: float = 0.1  # ... counting through trigger dropouts up to this long (missed detections)
 
 
 @dataclass

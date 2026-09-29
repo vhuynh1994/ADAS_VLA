@@ -188,7 +188,7 @@ làn trống). Vì vậy bước **label → review → LoRA** là bắt buộc 
   `cutting_in` (`CUTTING IN from the left/right` trong context của VLM, nhãn `cut-in` trên HUD) và được safety gate
   coi là lead → ACC/FCW phản ứng trước khi nó vào hẳn làn. Tham số: `perception.cut_in_rate`, `cut_in_max_distance_m`.
 - **Safety gate:** AEB/FCW có hysteresis và thời gian giữ (`safety.aeb_hold_s`, `fcw_hold_s`, `hysteresis`) — một
-  frame nhiễu không còn làm phanh nhấp nhả. **Golden vectors** `tests/data/safety_golden.json` (204 kịch bản, sinh bằng
+  frame nhiễu không còn làm phanh nhấp nhả. **Golden vectors** `tests/data/safety_golden.json` (206 kịch bản, sinh bằng
   `python scripts/safety_golden.py`) là test tương đương cho bản C++ trên SA8797P; CI kiểm tra file luôn khớp với gate.
 - **VLM 2 frame:** `vlm.prev_frame_s: 0.5` đưa thêm frame 0,5 s trước dưới dạng video 2 frame. Qwen2.5-VL gói 2 frame
   vào một temporal patch nên **vẫn 220 visual token**, latency gần như không đổi, model nhìn được xe trước chậm dần /
@@ -216,11 +216,14 @@ Hold/hysteresis của AEB kéo dài các phát hiện sai của perception đơn
 - **Phát hiện ảo trên xe mình:** mui + taplo nhận là "car" rộng cả khung hình (AEB "xe 2 m"); vật trang trí trên taplo
   chạm mép dưới nhận là "người 4 m" (cận trên theo mặt đường chỉ đúng khi mép dưới khung là mặt đường). Xe vượt ở khúc
   cua không còn bị coi là cắt làn (`perception.cut_in_max_pull_away_mps`).
-- **AEB cần xác nhận** `safety.aeb_confirm_s: 0.2` (FCW vẫn tác động ngay).
+- **AEB cần xác nhận** `safety.aeb_confirm_s: 0.1`, tính xuyên qua các lần mất phát hiện ngắn (`aeb_confirm_gap_s: 0.1`: xe cắt làn
+  ở 5 m thường bị YOLO bỏ sót vài frame); FCW vẫn tác động ngay.
 - **Đo bằng `scripts/gate_replay.py`** (chạy detector 1 lần trên GPU, phát lại hình học + TTC + gate trên CPU): 111 video
   Nexar tập test (mốc cảnh báo/va chạm do người gán) + 24 clip Australian có nhãn + 1 clip cao tốc. Trên các clip lái
-  bình thường, AEB sai giảm từ **15,8% thời gian / 8,6 lần mỗi phút** (code cloud) xuống **1,7% / 1,1 lần**; FCW hoặc AEB
-  vẫn phản ứng trong 90% đoạn nguy hiểm của Nexar.
+  bình thường, AEB sai giảm từ **15,8% thời gian / 8,6 lần mỗi phút** (code cloud) xuống **4,0% / 2,3 lần**; mẫu nhãn
+  KEEP bị AEB 16% → 1,5%; SUV cắt làn ở 5 m (clip va chạm) vẫn được AEB lúc 9,3 s. Đánh đổi: trong đoạn nguy hiểm
+  của Nexar AEB bật ở 53% video (cửa sổ đối chứng cùng độ dài: 25%) so với 76% (35%) trước đây; FCW hoặc AEB vẫn phản
+  ứng ở 90%. `safety.aeb_confirm_s: 0` = không xác nhận.
 - **Policy `cautious_gated` không dùng:** trên val v3, under-braking chỉ giảm 8,8% → 7,0% trong khi phanh thừa tăng
   14,8% → 24,2%; hầu hết ca phanh thiếu không có dấu hiệu nguy hiểm nào trong perception.
 - **Dataset `ds_v3`** = đúng các mẫu của `ds_v2` build lại với perception mới (`build-dataset comma2k19 --only-from`,

@@ -79,6 +79,16 @@ def scenarios() -> list[dict]:
         step(10.0, 50.0, [lead(3.0, 0.5)], VLMS["keep"]), step(10.05, 50.0, [], VLMS["keep"]),
         step(10.25, 50.0, [], VLMS["keep"]),
     ]})
+    # Confirmation counts through a short detection dropout (<= aeb_confirm_gap_s) ...
+    cases.append({"name": "aeb_confirm_through_dropout", "steps": [
+        step(10.0, 50.0, [lead(5.0, 0.8)], VLMS["keep"]), step(10.05, 50.0, [], VLMS["keep"]),
+        step(10.1, 50.0, [lead(4.8, 0.8)], VLMS["keep"]),
+    ]})
+    # ... but a longer gap restarts it.
+    cases.append({"name": "aeb_confirm_restarts_after_gap", "steps": [
+        step(10.0, 50.0, [lead(5.0, 0.8)], VLMS["keep"]), step(10.05, 50.0, [], VLMS["keep"]),
+        step(10.2, 50.0, [lead(4.8, 0.8)], VLMS["keep"]), step(10.3, 50.0, [lead(4.6, 0.8)], VLMS["keep"]),
+    ]})
     # FCW hold: short headway for one frame, then the lead pulls away.
     cases.append({"name": "fcw_hold", "steps": [
         step(10.0, 50.0, [lead(10.0, None)], VLMS["keep"]), step(10.5, 50.0, [lead(40.0, None)], VLMS["keep"]),

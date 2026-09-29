@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (64 tests, must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (65 tests, must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -55,14 +55,17 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   consensus class (car<->truck flips doubled them); full-width hood/dashboard box = ego car; the clipped-box
   ground-plane bound only applies when the box top is physically plausible (dashboard ornament was a "person at
   4 m"); overtaking cars pulling away are not cut-ins (`perception.cut_in_max_pull_away_mps`).
-- Gate: `safety.aeb_confirm_s: 0.2` (AEB acts once its trigger held 0.2 s; FCW acts at once). Golden vectors now hold
-  each scene for 2 steps (before / after confirmation), 204 cases; `evaluate.gate_offline` treats a sample as
-  persistent (no confirmation). `aeb_min_decel_mps2` and FCW confirmation were tried and dropped (no gain).
+- Gate: `safety.aeb_confirm_s: 0.1` + `aeb_confirm_gap_s: 0.1` (AEB acts once its trigger held 0.1 s, counting
+  through detector dropouts up to 0.1 s; once active every trigger extends the hold; FCW acts at once). 0.2 s missed
+  the real SUV cut-in at 5 m of the crash clip (detector misses it for frames at a time). Golden vectors hold each
+  scene for 2 steps (before / after confirmation) + dropout cases, 206 cases; `evaluate.gate_offline` treats a
+  sample as persistent (no confirmation). `aeb_min_decel_mps2` and FCW confirmation were tried and dropped (no gain).
 - `scripts/gate_replay.py capture|replay`: detector + lanes once on the GPU (`outputs/gate_replay/*.pkl`), then
   geometry + TTC + gate replayed on the CPU per config variant. Set: 111 Nexar test videos (normal driving before
   alert - 1.5 s, hazard alert..event, control window of equal length), 24 reviewed Australian clips, highway sample.
-  Pure normal clips: AEB 15.8% of the time / 8.6 per min (cloud code) -> 1.7% / 1.1 (now); FCW or AEB in 90% of the
-  Nexar hazard windows (control: 68%).
+  Pure normal clips: AEB 15.8% of the time / 8.6 per min (cloud code) -> 4.0% / 2.25 (now); AEB on KEEP-labelled AU
+  samples 16% -> 1.5%. Trade-off: AEB in 53% of the Nexar hazard windows (control window 25%) vs 76% (35%) before;
+  FCW or AEB still in 90% (control 68%).
 - Step 2 (`sweep_policy.py --gate`, v3 val): cautious_gated only moves under-braking 8.8% -> 7.0% while over-braking
   14.8% -> 24.2% -> rejected, greedy stays. Eval logs with `probs`: `outputs/eval_v3p_*.jsonl` (and every new eval).
 - Step 3: `data/ds_v3` = exactly the ds_v2 samples rebuilt with the current perception (`scripts/v4_data.sh`:

@@ -34,7 +34,7 @@ def test_fresh_vlm_decision_passes_through():
 
 def test_aeb_overrides_vlm():
     s = SafetySupervisor(Config())
-    for t in (10.0, 10.1, 10.2):  # AEB acts once its trigger held for aeb_confirm_s (0.2 s)
+    for t in (10.0, 10.1, 10.2):  # AEB acts once its trigger held for aeb_confirm_s
         d, alerts = s.arbitrate(ctx_with([car(12, ttc=1.0)], t=t), vlm(LongAction.ACCELERATE, t=t, lat_a=LatAction.NUDGE_LEFT))
     assert d.longitudinal is LongAction.EMERGENCY_BRAKE and d.lateral is LatAction.KEEP_LANE and d.target_speed_kmh == 0 and d.source == "safety"
     assert alerts[0].kind == "AEB" and alerts[0].level == "critical"
@@ -175,7 +175,7 @@ def moving(dist, closing):
 
 def test_aeb_confirmation_ignores_one_frame_phantoms():
     cfg = Config()
-    cfg.safety.aeb_confirm_s = 0.15
+    cfg.safety.aeb_confirm_s, cfg.safety.aeb_confirm_gap_s = 0.15, 0.0
     s = SafetySupervisor(cfg)
     d, alerts = s.arbitrate(ctx_with([moving(12, 12)], t=10.0), vlm(LongAction.KEEP, t=10.0))
     assert d.longitudinal is LongAction.DECELERATE and [a.kind for a in alerts] == ["FCW"]  # not confirmed yet
@@ -187,3 +187,20 @@ def test_aeb_confirmation_ignores_one_frame_phantoms():
     d, alerts = s.arbitrate(ctx_with([moving(11, 12)], t=10.25), vlm(LongAction.KEEP, t=10.25))
     assert d.longitudinal is LongAction.EMERGENCY_BRAKE and alerts[0].kind == "AEB"
 
+
+def test_aeb_confirmation_counts_through_short_dropouts():
+    """Crash-clip regression: a car cutting in at 5 m is missed by the detector for a few frames at a time; the
+    confirmation must not restart on every dropout, but a long gap does restart it."""
+    cfg = Config()
+    cfg.safety.aeb_confirm_s, cfg.safety.aeb_confirm_gap_s = 0.1, 0.05
+    s = SafetySupervisor(cfg)
+    seen = []
+    for t, dets in ((10.0, [moving(5, 5)]), (10.02, []), (10.04, [moving(5, 5)]), (10.06, []), (10.08, [moving(5, 5)]),
+                    (10.1, [moving(5, 5)])):
+        d, _ = s.arbitrate(ctx_with(dets, t=t), vlm(LongAction.KEEP, t=t))
+        seen.append(d.longitudinal is LongAction.EMERGENCY_BRAKE)
+    assert seen == [False] * 5 + [True]  # 0.1 s since the first trigger, dropouts of 0.02 s tolerated
+    s = SafetySupervisor(cfg)
+    for t, dets in ((10.0, [moving(5, 5)]), (10.02, []), (10.09, [moving(5, 5)]), (10.12, [moving(5, 5)])):
+        d, _ = s.arbitrate(ctx_with(dets, t=t), vlm(LongAction.KEEP, t=t))
+    assert d.longitudinal is not LongAction.EMERGENCY_BRAKE  # the 0.07 s gap restarted the count at 10.09
