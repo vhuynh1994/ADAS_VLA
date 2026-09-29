@@ -132,8 +132,12 @@ class YolopLaneDetector(LaneDetector):
     MEAN = np.array([0.485, 0.456, 0.406], np.float32)
     STD = np.array([0.229, 0.224, 0.225], np.float32)
 
-    def __init__(self, weights: str, device: str = "cuda:0", **kwargs):
+    def __init__(self, weights: str, device: str = "cuda:0", keep_drivable: bool = False, **kwargs):
+        """keep_drivable: also publish the drivable-area mask as `self.drivable` (nothing in the pipeline reads it,
+        so it is off by default to save an argmax + resize per frame)."""
         super().__init__(**kwargs)
+        self.keep_drivable = keep_drivable
+
         import onnx
         import torch
         from onnx2torch import convert
@@ -163,8 +167,10 @@ class YolopLaneDetector(LaneDetector):
         with torch.inference_mode():
             drive, lane = self.model(x.half() if self.half else x)
         lane = lane[0].argmax(0)[top:top + nh, left:left + nw].to(torch.uint8).cpu().numpy()
-        drive = drive[0].argmax(0)[top:top + nh, left:left + nw].to(torch.uint8).cpu().numpy()
-        self.drivable = cv2.resize(drive, (w, h), interpolation=cv2.INTER_NEAREST)
+        if self.keep_drivable:
+            drive = drive[0].argmax(0)[top:top + nh, left:left + nw].to(torch.uint8).cpu().numpy()
+            self.drivable = cv2.resize(drive, (w, h), interpolation=cv2.INTER_NEAREST)
+
         mask = cv2.resize(lane * 255, (w, h), interpolation=cv2.INTER_NEAREST)
 
         top_y = int(self.roi_top * h)

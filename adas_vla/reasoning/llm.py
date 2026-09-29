@@ -21,9 +21,12 @@ EXPLAIN_SYSTEM_PROMPT = (
 
 def event_prompt(event: dict) -> str:
     d = event["decision"]
+    # Built outside the f-string: nested same-quote f-strings need Python 3.12 (pyproject supports 3.10+).
+    alerts = ", ".join(f"{a['kind']} ({a['level']}): {a['message']}" for a in event["alerts"]) or "none"
     lines = [
         f"Time: {event['t']:.1f} s (frame {event['frame']})",
-        f"Alerts: {', '.join(f'{a['kind']} ({a['level']}): {a['message']}' for a in event['alerts']) or 'none'}",
+        f"Alerts: {alerts}",
+
         f"System action: {d['longitudinal']} / {d['lateral']} (decided by {d['source']}), "
         f"target speed {d['target_speed_kmh']:.0f} km/h",
     ]

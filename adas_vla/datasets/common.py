@@ -11,8 +11,25 @@ import numpy as np
 
 from ..types import LatAction, LongAction, RiskLevel, SceneContext
 
+PREV_FRAME_S = 0.5  # every sample also stores the frame this many seconds earlier (2-frame VLM input)
+
+
+def lead_meta(ctx: SceneContext) -> dict | None:
+    """Structured lead object stored with each sample (`lead`), so the safety gate can be replayed offline:
+    `adas-vla eval` then reports under-braking of the VLM alone and of VLM + gate (the system)."""
+    lead = ctx.lead_object()
+    if lead is None:
+        return None
+
+    def r(v):
+        return None if v is None else round(v, 2)
+
+    return {"cls": lead.cls_name, "distance_m": r(lead.distance_m), "closing_speed_mps": r(lead.closing_speed_mps),
+            "ttc_s": r(lead.ttc_s), "cutting_in": lead.cutting_in}
+
 
 def split_for(group: str, val_percent: int = 20) -> str:
+
     """Deterministic train/val split by video group, so frames of one video never straddle splits."""
     bucket = int(hashlib.md5(group.encode()).hexdigest(), 16) % 100
     return "val" if bucket < val_percent else "train"
@@ -96,10 +113,17 @@ class RecordWriter:
     def has(self, sample_id: str) -> bool:
         return sample_id in self.existing
 
-    def write(self, sample_id: str, frame: np.ndarray, record: dict) -> None:
+    def write(self, sample_id: str, frame: np.ndarray, record: dict, prev_frame: np.ndarray | None = None) -> None:
+        """`prev_frame`: the frame PREV_FRAME_S earlier, stored as <id>_prev.jpg (`image_prev`)."""
         name = f"{sample_id}.jpg"
         cv2.imwrite(str(self.frames_dir / name), frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
-        self._f.write(json.dumps({"id": sample_id, "image": f"frames/{name}", **record}, ensure_ascii=False) + "\n")
+        head = {"id": sample_id, "image": f"frames/{name}"}
+        if prev_frame is not None:
+            prev_name = f"{sample_id}_prev.jpg"
+            cv2.imwrite(str(self.frames_dir / prev_name), prev_frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
+            head.update(image_prev=f"frames/{prev_name}", prev_frame_s=PREV_FRAME_S)
+        self._f.write(json.dumps({**head, **record}, ensure_ascii=False) + "\n")
+
         self._f.flush()
         self.existing.add(sample_id)
         self.count += 1

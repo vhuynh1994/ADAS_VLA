@@ -7,15 +7,43 @@ vehicle, and blocks lane changes that need driver confirmation. It must stay sim
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 
 from ..config import Config
 from ..types import VRU_CLASSES, Alert, DrivingDecision, LatAction, LongAction, RiskLevel, SceneContext
 
 
+class _Latch:
+    """Keeps an intervention active for `hold_s` after its trigger condition last held (no flapping)."""
+
+    def __init__(self):
+        self.until = -math.inf
+        self.detail = ""
+
+    def active(self, t: float) -> bool:
+        return t <= self.until
+
+    def update(self, t: float, triggered: bool, hold_s: float) -> bool:
+        if triggered:
+            self.until = t + hold_s
+        return t <= self.until
+
+    def reset(self) -> None:
+        self.until = -math.inf
+        self.detail = ""
+
+
 class SafetySupervisor:
     def __init__(self, cfg: Config):
         self.cfg = cfg
+        self._aeb = _Latch()
+        self._fcw = _Latch()
+
+    def reset(self) -> None:
+        """Forget held interventions (call when the timeline restarts, e.g. a new video)."""
+        self._aeb.reset()
+        self._fcw.reset()
 
     def acc_speed_cap_kmh(self, ctx: SceneContext) -> float | None:
         """Max speed that keeps the desired time gap to the lead object (constant time-gap ACC law)."""
@@ -63,6 +91,7 @@ class SafetySupervisor:
                   ) -> tuple[DrivingDecision, list[Alert]]:
         s = self.cfg.safety
         alerts: list[Alert] = []
+        t = ctx.timestamp_s
         ego = ctx.ego.speed_kmh
         ego_mps = ctx.ego.speed_mps
 
@@ -71,21 +100,37 @@ class SafetySupervisor:
         else:
             decision = self.rule_decision(ctx)
 
-        # 1. Longitudinal collision checks on the nearest in-path object.
+        # 1. Longitudinal collision checks on the nearest in-path (or cutting-in) object. AEB and FCW are
+        #    Schmitt triggers: once active they only release when the thresholds are cleared by `hysteresis`,
+        #    and they stay active for `*_hold_s` after the last trigger, so one noisy frame cannot flap the brake.
         lead = ctx.lead_object()
+        aeb_now = fcw_now = False
         if lead is not None and lead.distance_m is not None:
             ttc = lead.ttc_s
             gap_s = lead.distance_m / ego_mps if ego_mps > 0.5 else None
-            if (ttc is not None and ttc < s.aeb_ttc_s) or (lead.distance_m < s.min_distance_m and ego_mps > 1):
-                alerts.append(Alert("AEB", f"Emergency brake: {lead.cls_name} at {lead.distance_m:.0f} m"
-                                    + (f", TTC {ttc:.1f} s" if ttc is not None else ""), "critical"))
-                decision = replace(decision, longitudinal=LongAction.EMERGENCY_BRAKE, lateral=LatAction.KEEP_LANE,
-                                   target_speed_kmh=0.0, risk_level=RiskLevel.HIGH, source="safety",
-                                   reason=f"AEB: {lead.cls_name} too close")
-            elif (ttc is not None and ttc < s.fcw_ttc_s) or (gap_s is not None and gap_s < s.min_time_gap_s):
-                alerts.append(Alert("FCW", f"Forward collision warning: {lead.cls_name} at {lead.distance_m:.0f} m",
-                                    "warning"))
-                decision = self._at_least(decision, LongAction.DECELERATE, ego * 0.8, "FCW: closing on lead object")
+            m = s.hysteresis if self._aeb.active(t) else 1.0
+            aeb_now = (ttc is not None and ttc < s.aeb_ttc_s * m) or (lead.distance_m < s.min_distance_m * m
+                                                                        and ego_mps > 1)
+            m = s.hysteresis if self._fcw.active(t) else 1.0
+            fcw_now = (ttc is not None and ttc < s.fcw_ttc_s * m) or (gap_s is not None
+                                                                        and gap_s < s.min_time_gap_s * m)
+            where = f"{lead.cls_name} at {lead.distance_m:.0f} m"
+            if aeb_now:
+                self._aeb.detail = where + (f", TTC {ttc:.1f} s" if ttc is not None else "")
+            if fcw_now:
+                self._fcw.detail = where
+        aeb = self._aeb.update(t, aeb_now, s.aeb_hold_s)
+        fcw = self._fcw.update(t, fcw_now, s.fcw_hold_s)
+        if aeb:
+            alerts.append(Alert("AEB", "Emergency brake: " + self._aeb.detail + ("" if aeb_now else " (holding)"),
+                                "critical"))
+            decision = replace(decision, longitudinal=LongAction.EMERGENCY_BRAKE, lateral=LatAction.KEEP_LANE,
+                               target_speed_kmh=0.0, risk_level=RiskLevel.HIGH, source="safety",
+                               reason="AEB: " + self._aeb.detail.split(" at ")[0] + " too close")
+        elif fcw:
+            alerts.append(Alert("FCW", "Forward collision warning: " + self._fcw.detail
+                                + ("" if fcw_now else " (holding)"), "warning"))
+            decision = self._at_least(decision, LongAction.DECELERATE, ego * 0.8, "FCW: closing on lead object")
 
         # 2. Vulnerable road users in the ego path.
         for det in ctx.detections:

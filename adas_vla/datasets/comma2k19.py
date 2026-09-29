@@ -16,8 +16,10 @@ import cv2
 import numpy as np
 
 from ..config import Config
+from ..sources import FrameHistory
 from ..types import EgoState, LatAction, LongAction
-from .common import RecordWriter, risk_for, split_for, template_reason
+from .common import PREV_FRAME_S, RecordWriter, lead_meta, risk_for, split_for, template_reason
+
 
 FPS = 20.0
 HFOV_DEG = 65.0  # comma EON road camera: 1164 px wide, focal length ~910 px
@@ -145,6 +147,7 @@ def build(cfg: Config, zip_path: Path, out_dir: Path, max_segments: int = 60, ev
             cruise = max(30.0, round(np.percentile(speed_v, 90) * 3.6 / 5) * 5)
             split = "train" if skip_from else split_for(route, val_percent)
             pipe.reset()
+            history = FrameHistory(PREV_FRAME_S)
             cap = cv2.VideoCapture(str(video))
             offsets, samples = [], {}
             idx = 0
@@ -152,18 +155,21 @@ def build(cfg: Config, zip_path: Path, out_dir: Path, max_segments: int = 60, ev
                 ok, frame = cap.read()
                 if not ok:
                     break
+                t_abs = float(frame_times[idx])
+                t_rel = t_abs - float(frame_times[0])
+                history.push(t_rel, frame)
                 if idx % perception_stride == 0:
-                    t_abs = float(frame_times[idx])
-                    ctx = pipe.perceive(frame, idx, t_abs - float(frame_times[0]), EgoState(speed_at(t_abs) * 3.6))
+                    ctx = pipe.perceive(frame, idx, t_rel, EgoState(speed_at(t_abs) * 3.6))
                     offsets.append((idx, ctx.lanes.offset_norm))
                     if idx % sample_step == 0 and t_abs + 3.0 <= min(float(frame_times[-1]), float(speed_t[-1])):
-                        samples[idx] = (frame, ctx, t_abs)
+                        samples[idx] = (frame, history.before(t_rel), ctx, t_abs)
                 idx += 1
             cap.release()
             video.unlink(missing_ok=True)
 
             events = detect_lane_changes(offsets)
-            for i, (frame, ctx, t_abs) in samples.items():
+            for i, (frame, prev, ctx, t_abs) in samples.items():
+
                 long_a, target_kmh, accel = longitudinal_label(speed_at, t_abs)
                 lat_a = lateral_label(i, events)
                 flags = []
@@ -179,9 +185,10 @@ def build(cfg: Config, zip_path: Path, out_dir: Path, max_segments: int = 60, ev
                         "reason": template_reason(long_a, lat_a, ctx),
                     },
                     "split": split, "source": "comma2k19", "group": route, "video": seg, "frame": i,
-                    "label_source": "can", "reviewed": False, "flags": flags,
+                    "label_source": "can", "reviewed": False, "flags": flags, "lead": lead_meta(ctx),
                     "meta": {"accel_mps2": round(accel, 2), "camera_hfov_deg": HFOV_DEG},
-                })
+                }, prev_frame=prev)
+
             print(f"  [{k + 1}/{len(segments)}] {seg_id}: {len(samples)} samples, "
                   f"{len(events)} lane changes, split={split}", flush=True)
     writer.close()

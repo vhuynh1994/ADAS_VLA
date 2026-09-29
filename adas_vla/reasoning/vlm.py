@@ -10,8 +10,9 @@ import numpy as np
 from PIL import Image
 
 from ..config import VLMConfig, resolve_model
-from ..types import DrivingDecision
+from ..types import DrivingDecision, context_has_hazard_cue
 from .parser import parse_decision
+
 from .prompts import DECISION_PREFIX, chat_messages, decision_messages
 
 
@@ -65,12 +66,15 @@ REASON_KEY = '"reason"'
 LONG_ORDER = ["ACCELERATE", "KEEP", "DECELERATE", "BRAKE", "STOP"]  # by braking strength
 
 
-def choose_action(probs: dict[str, float], policy: str, tau_decel: float, tau_brake: float) -> str:
+def choose_action(probs: dict[str, float], policy: str, tau_decel: float, tau_brake: float, cue: bool = True) -> str:
     """Greedy argmax, or 'cautious': escalate to BRAKE / DECELERATE when P(at least that much braking) is
-    high enough. Never relaxes the greedy choice; STOP is only chosen when it is the most likely action."""
+    high enough. Never relaxes the greedy choice; STOP is only chosen when it is the most likely action.
+    'cautious_gated' escalates only when perception corroborates a hazard (`cue`, see context_has_hazard_cue),
+    which keeps the false slowdowns of 'cautious' off empty roads."""
     greedy = max(probs, key=probs.get)
-    if policy != "cautious":
+    if policy not in ("cautious", "cautious_gated") or (policy == "cautious_gated" and not cue):
         return greedy
+
     rank = LONG_ORDER.index
     p_ge = lambda a: sum(p for b, p in probs.items() if rank(b) >= rank(a))
     for target, tau in (("BRAKE", tau_brake), ("DECELERATE", tau_decel)):
@@ -83,8 +87,9 @@ class ActionPolicy:
     """LogitsProcessor for the first generated token: reads the probability of each longitudinal action
     (one distinct first token per action after DECISION_PREFIX) and forces the chosen one."""
 
-    def __init__(self, tokenizer, prompt_len: int, cfg: VLMConfig):
-        self.prompt_len, self.cfg = prompt_len, cfg
+    def __init__(self, tokenizer, prompt_len: int, cfg: VLMConfig, cue: bool = True):
+        self.prompt_len, self.cfg, self.cue = prompt_len, cfg, cue
+
         self.first_token = {a: tokenizer(a, add_special_tokens=False).input_ids[0] for a in LONG_ORDER}
         self.probs: dict[str, float] | None = None
         self.choice: str | None = None
@@ -99,7 +104,8 @@ class ActionPolicy:
         total = sum(raw.values()) or 1.0
         self.probs = {a: v / total for a, v in raw.items()}
         self.choice = choose_action(self.probs, self.cfg.action_policy, self.cfg.cautious_tau_decel,
-                                    self.cfg.cautious_tau_brake)
+                                    self.cfg.cautious_tau_brake, self.cue)
+
         forced = torch.full_like(scores, float("-inf"))
         forced[:, self.first_token[self.choice]] = 0.0
         return forced
@@ -149,7 +155,25 @@ def append_tokens(inputs, ids):
     return inputs
 
 
+def encode_messages(processor, messages: list[dict], add_generation_prompt: bool):
+    """Tokenize chat messages together with their image or video frames (input_ids, pixel_values, ...).
+
+    Images go through the processor's chat-template path. Video frames given as PIL images (the 2-frame input,
+    see VLMConfig.prev_frame_s) are handed to the processor directly, because the template's video loader
+    expects file paths. Used by inference and fine-tuning so both see identical inputs.
+    """
+    contents = [c for m in messages if isinstance(m["content"], list) for c in m["content"]]
+    videos = [c["video"] for c in contents if c.get("type") == "video"]
+    if not videos:
+        return processor.apply_chat_template(messages, tokenize=True, add_generation_prompt=add_generation_prompt,
+                                             return_dict=True, return_tensors="pt")
+    images = [c["image"] for c in contents if c.get("type") == "image"]
+    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=add_generation_prompt)
+    return processor(text=[text], images=images or None, videos=videos, return_tensors="pt")
+
+
 def load_model_and_processor(cfg: VLMConfig, for_training: bool = False):
+
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     kwargs = model_load_kwargs(cfg.quantization, cfg.dtype, cfg.device_map, cfg.quantize_vision)
@@ -177,10 +201,9 @@ class VisionLanguageModel:
         generation ends early at any of `stop_strings` (the stop string is kept in the output)."""
         import torch
 
-        inputs = self.processor.apply_chat_template(
-            messages, tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt",
-        )
+        inputs = encode_messages(self.processor, messages, add_generation_prompt=True)
         if prefix:
+
             inputs = append_tokens(inputs, self.processor.tokenizer(
                 prefix, add_special_tokens=False, return_tensors="pt")["input_ids"])
         # BatchFeature.to() casts only floating tensors (pixel_values), not input_ids.
@@ -206,11 +229,21 @@ class VisionLanguageModel:
         return prefix + self.processor.batch_decode(new_tokens, skip_special_tokens=True)[0].strip()
 
     def decide(self, image, context_text: str, ego_speed_kmh: float, cruise_speed_kmh: float,
-               max_speed_kmh: float = 130.0) -> tuple[DrivingDecision | None, str, float]:
-        """Returns (decision or None if unparsable, raw text, latency in seconds)."""
-        pil = to_pil(image, self.cfg.image_max_side, self.cfg.image_size)
-        messages = decision_messages(pil, context_text, ego_speed_kmh, cruise_speed_kmh, self.cfg.language)
-        policy = ActionPolicy(self.processor.tokenizer, 0, self.cfg)
+               max_speed_kmh: float = 130.0, prev_image=None) -> tuple[DrivingDecision | None, str, float]:
+        """Returns (decision or None if unparsable, raw text, latency in seconds).
+
+        `prev_image` is the frame `cfg.prev_frame_s` earlier; used only when prev_frame_s > 0, and replaced by
+        the current frame when missing (a duplicated frame is exactly how Qwen2.5-VL encodes a single image).
+        """
+        now = to_pil(image, self.cfg.image_max_side, self.cfg.image_size)
+        if self.cfg.prev_frame_s > 0:
+            prev = to_pil(prev_image, self.cfg.image_max_side, self.cfg.image_size) if prev_image is not None else now
+            visual = [prev, now]
+        else:
+            visual = now
+        messages = decision_messages(visual, context_text, ego_speed_kmh, cruise_speed_kmh, self.cfg.language)
+        policy = ActionPolicy(self.processor.tokenizer, 0, self.cfg, cue=context_has_hazard_cue(context_text))
+
         t0 = time.perf_counter()
         if self.cfg.generate_reason:
             raw = self.generate(messages, prefix=DECISION_PREFIX, logits_processor=policy)

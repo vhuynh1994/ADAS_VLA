@@ -25,3 +25,10 @@ No human reviewed these labels. Instead, quality comes from three layers, and ev
 - Nexar BRAKE labels mark the moment a hazard *starts*; about 45 % are hard to justify from one frame alone.
 - Attribution (Nexar): Moura, Daniel C., and Zvitia, Orly. "Nexar Collison Dataset." Hugging Face, 2025,
   https://huggingface.co/datasets/nexar-ai/nexar_collision_prediction.
+
+**Record fields added 2026-09-29** (written by all builders from now on; `ds_v2` does not have them):
+- `image_prev`, `prev_frame_s`: the frame 0.5 s before the sample, for the 2-frame VLM input (`vlm.prev_frame_s`).
+  Records without it are trained/evaluated with the current frame twice, which Qwen2.5-VL encodes like one image.
+- `lead`: the nearest object in the ego path at that frame (`cls`, `distance_m`, `closing_speed_mps`, `ttc_s`,
+  `cutting_in`) or `null`. `adas-vla eval` replays the safety gate on it and reports under-braking *after* the gate
+  (the system) next to the VLM-only number. Rebuild the dataset to get these numbers for `ds_v2` routes.

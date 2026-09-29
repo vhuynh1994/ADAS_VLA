@@ -14,7 +14,9 @@ from .config import Config
 from .control import Controller, SafetySupervisor
 from .perception import MotionEstimator
 from .perception.lanes import build_lane_detector
+from .sources import FrameHistory
 from .types import VRU_CLASSES, DrivingDecision, EgoState, FrameResult, LaneInfo, SceneContext
+
 
 log = logging.getLogger(__name__)
 
@@ -31,12 +33,13 @@ class _AsyncVLMWorker:
         self._thread = threading.Thread(target=self._loop, daemon=True, name="vlm-worker")
         self._thread.start()
 
-    def submit(self, frame: np.ndarray, ctx: SceneContext) -> None:
+    def submit(self, frames: tuple[np.ndarray, np.ndarray | None], ctx: SceneContext) -> None:
         try:
             self._inbox.get_nowait()  # drop the stale pending frame
         except queue.Empty:
             pass
-        self._inbox.put_nowait((frame.copy(), ctx))
+        self._inbox.put_nowait((tuple(None if f is None else f.copy() for f in frames), ctx))
+
 
     def latest(self) -> DrivingDecision | None:
         with self._lock:
@@ -45,10 +48,11 @@ class _AsyncVLMWorker:
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                frame, ctx = self._inbox.get(timeout=0.1)
+                frames, ctx = self._inbox.get(timeout=0.1)
             except queue.Empty:
                 continue
-            decision = self._run_fn(frame, ctx)
+            decision = self._run_fn(frames, ctx)
+
             if decision is not None:
                 with self._lock:
                     self._result = decision
@@ -67,9 +71,12 @@ class ADASPipeline:
         self.lane_detector = build_lane_detector(
             cfg.perception.lane_model, cfg.perception.lane_weights, cfg.perception.device,
         ) if cfg.perception.lane_detection else None
-        self.motion = MotionEstimator(cfg.camera)
+        self.motion = MotionEstimator(cfg.camera, cut_in_rate=cfg.perception.cut_in_rate,
+                                      cut_in_max_distance_m=cfg.perception.cut_in_max_distance_m)
         self.safety = SafetySupervisor(cfg)
         self.controller = Controller(cfg.control)
+        self._history = FrameHistory(cfg.vlm.prev_frame_s)  # earlier frame for the 2-frame VLM input
+
 
         self.vlm = vlm
         if self.vlm is None and load_vlm and cfg.vlm.enabled:
@@ -102,7 +109,9 @@ class ADASPipeline:
         gap = None if lead is None or lead.distance_m is None else min(3, int(lead.distance_m // 15))
         vru = any(d.cls_name in VRU_CLASSES and d.in_ego_path for d in ctx.detections)
         red = any(d.cls_name == "traffic light" and d.attribute == "red" for d in ctx.detections)
-        return (lead.track_id if lead else None, gap, vru, red, ctx.lanes.valid)
+        cut_in = any(d.cutting_in for d in ctx.detections)
+        return (lead.track_id if lead else None, gap, vru, red, cut_in, ctx.lanes.valid)
+
 
     def should_call_vlm(self, ctx: SceneContext) -> bool:
         v = self.cfg.vlm
@@ -116,11 +125,13 @@ class ADASPipeline:
             return True
         return v.trigger == "event" and changed and since >= v.min_interval_frames
 
-    def _run_vlm(self, frame: np.ndarray, ctx: SceneContext) -> DrivingDecision | None:
+    def _run_vlm(self, frames: tuple[np.ndarray, np.ndarray | None], ctx: SceneContext) -> DrivingDecision | None:
+        frame, prev = frames
         decision, raw, latency = self.vlm.decide(
             frame, ctx.summary_text(), ctx.ego.speed_kmh, self.cfg.control.cruise_speed_kmh,
-            self.cfg.safety.max_speed_kmh,
+            self.cfg.safety.max_speed_kmh, prev_image=prev,
         )
+
         self.vlm_calls += 1
         self.vlm_latencies.append(latency)
         self.last_raw = raw
@@ -137,14 +148,17 @@ class ADASPipeline:
         ctx = self.perceive(frame, frame_idx, t, ego)
         perception_ms = (time.perf_counter() - t0) * 1000
 
+        self._history.push(t, frame)
         if self.vlm is not None and self.should_call_vlm(ctx):
             self._last_vlm_frame = frame_idx
+            frames = (frame, self._history.before(t))
             if self._worker is not None:
-                self._worker.submit(frame, ctx)
+                self._worker.submit(frames, ctx)
             else:
-                decision = self._run_vlm(frame, ctx)
+                decision = self._run_vlm(frames, ctx)
                 if decision is not None:
                     self.latest_vlm = decision
+
         if self._worker is not None:
             self.latest_vlm = self._worker.latest() or self.latest_vlm
 
@@ -156,9 +170,12 @@ class ADASPipeline:
     def reset(self) -> None:
         self.detector.reset()
         self.motion.reset()
+        self.safety.reset()
+        self._history.reset()
         if self.lane_detector:
             self.lane_detector.reset()
         self.latest_vlm = None
+
         self._last_vlm_frame = None
         self._last_signature = None
 

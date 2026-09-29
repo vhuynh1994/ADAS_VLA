@@ -7,7 +7,10 @@ greedy run (it is decoded after the longitudinal token and rarely changes). Thre
 on the samples they are measured on.
 
   python scripts/sweep_policy.py outputs/eval_v3p_val.jsonl --data data/ds_v2/labels.jsonl [--nexar ...]
+  python scripts/sweep_policy.py ... --gate     # cautious_gated: escalate only where the logged perception
+                                                # context shows a hazard (same rule the pipeline applies online)
 """
+
 
 from __future__ import annotations
 
@@ -21,9 +24,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from adas_vla.reasoning.vlm import LONG_ORDER, choose_action  # noqa: E402
 from adas_vla.training.data import load_records  # noqa: E402
+from adas_vla.types import context_has_hazard_cue  # noqa: E402
 
 RANK = {a: i for i, a in enumerate(LONG_ORDER)}
 GRID = [round(0.05 * i, 2) for i in range(2, 11)] + [1.01]  # 0.10 .. 0.50, and "off"
+POLICY = "cautious"
+CUE: dict[str, bool] = {}  # image -> perception shows a hazard (only used by cautious_gated)
 
 
 def metrics(rows: list[dict], tau_d: float, tau_b: float) -> dict:
@@ -32,7 +38,8 @@ def metrics(rows: list[dict], tau_d: float, tau_b: float) -> dict:
         if not r.get("probs"):
             continue
         g = r["gt"]["longitudinal"]
-        p = choose_action(r["probs"], "cautious", tau_d, tau_b)
+        p = choose_action(r["probs"], POLICY, tau_d, tau_b, CUE.get(r["image"], True))
+
         n += 1
         ok += p == g and r["pred"]["lateral"] == r["gt"]["lateral"]
         under += RANK[g] >= RANK["DECELERATE"] and RANK[p] < RANK[g]
@@ -54,15 +61,26 @@ def fmt(m: dict) -> str:
 
 
 def main() -> None:
+    global POLICY
     ap = argparse.ArgumentParser()
     ap.add_argument("report")
     ap.add_argument("--data", required=True)
     ap.add_argument("--nexar", help="eval report on test_nexar, to check the chosen thresholds")
     ap.add_argument("--max-under", type=float, default=0.01)
+    ap.add_argument("--gate", action="store_true", help="cautious_gated policy (see VLMConfig.action_policy)")
     args = ap.parse_args()
 
-    group = {r["image"]: r.get("group", "?") for r in load_records(args.data, include_excluded=True)}
+    records = load_records(args.data, include_excluded=True)
+    group = {r["image"]: r.get("group", "?") for r in records}
+    if args.gate:
+        POLICY = "cautious_gated"
+        CUE.update({r["image"]: context_has_hazard_cue(r["context"]) for r in records})
     rows = [json.loads(line) for line in open(args.report) if line.strip()]
+    if args.gate:
+        cued = sum(CUE.get(r["image"], True) for r in rows)
+        print(f"policy cautious_gated: perception shows a hazard in {cued}/{len(rows)} samples "
+              f"({cued / max(1, len(rows)):.0%}); the others always keep the greedy action")
+
     fold = lambda r: int(hashlib.md5(group.get(r["image"], "?").encode()).hexdigest(), 16) % 2
     folds = [[r for r in rows if fold(r) == k] for k in (0, 1)]
 

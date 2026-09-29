@@ -127,7 +127,8 @@ adas_vla/
   config.py           dataclass config + YAML + --set overrides
   perception/         detector.py (YOLO11s+ByteTrack, màu đèn), geometry.py (distance/TTC/oncoming), lanes.py (YOLOP CNN hoặc classic)
   reasoning/          prompts.py, parser.py (JSON chịu lỗi), vlm.py (transformers, 4-bit, LoRA)
-  control/            safety.py (safety gate), controller.py
+  control/            safety.py (safety gate, AEB/FCW hysteresis), controller.py, golden.py (đọc/replay golden vectors)
+
   pipeline.py         dual-rate pipeline, VLM sync/async
   hud.py  sources.py  cli.py
   training/           autolabel.py, finetune.py (QLoRA + cân bằng lớp), evaluate.py, data.py
@@ -136,15 +137,19 @@ adas_vla/
   deploy/export.py    ONNX + calibration cho QAIRT
   reasoning/llm.py    LLM text-only giải thích sự kiện ADAS · events.py: tách sự kiện từ log
 configs/              default.yaml (Qwen2.5-VL-3B + Qwen3-4B, 4-bit) · smoke.yaml · pc_fast.yaml · teacher_7b.yaml
-scripts/              download_samples.sh · download_models.sh · fetch_hf.py
+scripts/              download_samples.sh · download_models.sh · fetch_hf.py · sweep_policy.py · safety_golden.py
+tests/data/safety_golden.json   kịch bản → quyết định mong đợi của safety gate (test tương đương cho bản C++)
+.github/workflows/ci.yml        pytest trên Python 3.10 + 3.12, không cần GPU
 docs/DEPLOY_SA8797P.md
+
 ```
 
 ## Kết quả đã kiểm chứng trên PC này (RTX 4060 Laptop 8 GB, 27/09/2026)
 
 | Thành phần | Kết quả |
 |---|---|
-| Unit test | 30/30 pass (`pytest -q`) |
+| Unit test | 44/44 pass (`pytest -q`); 61/61 sau phiên 29/09 (chạy trên cloud, Python 3.11, không GPU) |
+
 | Perception + safety + HUD (YOLO11n, ByteTrack, lane) | ~12 ms/frame; 22 FPS kể cả ghi video |
 | VLM Qwen2.5-VL-3B 4-bit, 560×308 | JSON hợp lệ 15/15, latency p50 2.1 s, **VRAM đỉnh 2.7 GB** (gồm cả YOLO) |
 | Chế độ async | vòng perception giữ ~30 FPS trong khi VLM chạy nền |
@@ -179,7 +184,31 @@ làn trống). Vì vậy bước **label → review → LoRA** là bắt buộc 
   perception bỏ sót vật thể quá gần, nhãn near-crash mơ hồ, lane change hiếm (model không dự đoán CHANGE_*).
 - **Safety gate** vẫn phanh trong các ca VLM bỏ sót (xem `outputs/demo_crash_v3_h264.mp4`).
 
+## Cập nhật 29/09/2026 (viết trong phiên cloud, **chưa chạy trên GPU** — xem checklist trong `CLAUDE.md`)
+
+- **Perception:** bbox chạm mép dưới khung hình (xe rất gần bị cắt) không còn bị ước lượng *xa hơn thật*: dùng thêm
+  chiều rộng bbox và mặt đường (`camera.mount_height_m`) làm cận trên. Xe làn bên đang **cắt làn** được gắn cờ
+  `cutting_in` (`CUTTING IN from the left/right` trong context của VLM, nhãn `cut-in` trên HUD) và được safety gate
+  coi là lead → ACC/FCW phản ứng trước khi nó vào hẳn làn. Tham số: `perception.cut_in_rate`, `cut_in_max_distance_m`.
+- **Safety gate:** AEB/FCW có hysteresis và thời gian giữ (`safety.aeb_hold_s`, `fcw_hold_s`, `hysteresis`) — một
+  frame nhiễu không còn làm phanh nhấp nhả. **Golden vectors** `tests/data/safety_golden.json` (203 kịch bản, sinh bằng
+  `python scripts/safety_golden.py`) là test tương đương cho bản C++ trên SA8797P; CI kiểm tra file luôn khớp với gate.
+- **VLM 2 frame:** `vlm.prev_frame_s: 0.5` đưa thêm frame 0,5 s trước dưới dạng video 2 frame. Qwen2.5-VL gói 2 frame
+  vào một temporal patch nên **vẫn 220 visual token**, latency gần như không đổi, model nhìn được xe trước chậm dần /
+  xe cắt làn. Dataset builder lưu `image_prev`; mẫu cũ không có thì dùng frame hiện tại 2 lần (Qwen mã hóa ảnh đơn
+  đúng như vậy). Cần fine-tune v4 với cùng cấu hình; v3 giữ `prev_frame_s: 0`.
+- **Policy `cautious_gated`:** chỉ escalate DECELERATE/BRAKE theo xác suất khi perception xác nhận có mối nguy trong
+  40 m (`types.context_has_hazard_cue`, cùng một luật cho online và offline). Sweep offline từ eval JSONL sẵn có:
+  `python scripts/sweep_policy.py outputs/eval_v3.jsonl --data data/ds_v2/labels.jsonl --gate`.
+- **Train:** `--workers N` (DataLoader worker giải mã ảnh + tokenize song song với GPU), `--brake-weight 2.0`
+  (nhân loss của mẫu DECELERATE/BRAKE/STOP, nhắm thẳng under-braking).
+- **Eval/report:** khoảng tin cậy Wilson 95% cho mọi tỷ lệ; thêm **under-braking sau safety gate** (VLM + gate = hệ
+  thống) khi dataset có trường `lead` (builder mới ghi; ds_v2 cũ phải build lại mới có).
+- **CI:** `.github/workflows/ci.yml` chạy pytest với Python 3.10 và 3.12 (không cần torch), kiểm tra cú pháp mọi module
+  và golden vectors. Sửa lỗi f-string lồng nhau trong `reasoning/llm.py` chỉ chạy được trên Python ≥ 3.12.
+
 ## Giới hạn và lưu ý
+
 
 - **Không dùng để điều khiển xe thật.** Đây là prototype R&D.
 - Khoảng cách được ước lượng từ 1 camera (chiều cao bbox + FOV), nên nhiễu. Cần chỉnh `camera.hfov_deg` theo camera thật.

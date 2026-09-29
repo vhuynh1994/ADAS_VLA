@@ -113,3 +113,47 @@ def test_controller_lateral_bias():
     left = c(vlm(LongAction.KEEP, lat_a=LatAction.NUDGE_LEFT), ctx_with())
     right = c(vlm(LongAction.KEEP, lat_a=LatAction.CHANGE_RIGHT), ctx_with())
     assert left.steer < 0 < right.steer
+
+
+def test_aeb_holds_after_trigger_and_uses_hysteresis():
+    s = SafetySupervisor(Config())
+    d, _ = s.arbitrate(ctx_with([car(12, ttc=1.0)], t=10.0), vlm(LongAction.KEEP, t=10.0))
+    assert d.longitudinal is LongAction.EMERGENCY_BRAKE
+    # TTC 1.8 s: above the 1.5 s trigger but below the release threshold (1.5 x 1.3) -> still AEB
+    d, _ = s.arbitrate(ctx_with([car(20, ttc=1.8)], t=10.1), vlm(LongAction.KEEP, t=10.1))
+    assert d.longitudinal is LongAction.EMERGENCY_BRAKE
+    # detection dropped for a frame: held for 0.5 s after the last trigger
+    d, alerts = s.arbitrate(ctx_with([], t=10.3), vlm(LongAction.KEEP, t=10.3))
+    assert d.longitudinal is LongAction.EMERGENCY_BRAKE and alerts[0].kind == "AEB" and "holding" in alerts[0].message
+    # AEB released; FCW (triggered by the same frames) is held for 1 s
+    d, alerts = s.arbitrate(ctx_with([], t=10.7), vlm(LongAction.KEEP, t=10.7))
+    assert d.longitudinal is LongAction.DECELERATE and [a.kind for a in alerts] == ["FCW"]
+    d, alerts = s.arbitrate(ctx_with([], t=11.2), vlm(LongAction.KEEP, t=11.2))
+    assert d.longitudinal is LongAction.KEEP and not alerts
+
+
+def test_no_hold_behaves_frame_by_frame():
+    cfg = Config()
+    cfg.safety.aeb_hold_s = cfg.safety.fcw_hold_s = 0.0
+    cfg.safety.hysteresis = 1.0
+    s = SafetySupervisor(cfg)
+    d, _ = s.arbitrate(ctx_with([car(12, ttc=1.0)], t=10.0), vlm(LongAction.KEEP, t=10.0))
+    assert d.longitudinal is LongAction.EMERGENCY_BRAKE
+    d, alerts = s.arbitrate(ctx_with([], t=10.1), vlm(LongAction.KEEP, t=10.1))
+    assert d.longitudinal is LongAction.KEEP and not alerts
+
+
+def test_reset_forgets_held_interventions():
+    s = SafetySupervisor(Config())
+    s.arbitrate(ctx_with([car(12, ttc=1.0)], t=10.0), vlm(LongAction.KEEP, t=10.0))
+    s.reset()  # new video: the timeline restarts
+    d, alerts = s.arbitrate(ctx_with([], t=0.0), vlm(LongAction.KEEP, t=0.0))
+    assert d.longitudinal is LongAction.KEEP and not alerts
+
+
+def test_cutting_in_vehicle_is_the_lead():
+    cut = Detection(cls_name="car", conf=0.9, box=(900, 400, 1000, 480), distance_m=15, in_ego_path=False,
+                    cutting_in=True)
+    d, _ = SafetySupervisor(Config()).arbitrate(ctx_with([cut], speed=60), vlm(LongAction.ACCELERATE, 90))
+    assert d.longitudinal is LongAction.DECELERATE  # the ACC gap cap applies to the cutting-in car
+    assert abs(d.target_speed_kmh - (15 - 5.0) / 1.8 * 3.6) < 1e-6

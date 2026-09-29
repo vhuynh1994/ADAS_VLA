@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -10,6 +11,39 @@ import cv2
 import numpy as np
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+
+class FrameHistory:
+    """Short ring buffer of recent frames, to fetch the frame `gap_s` before the current one.
+
+    Used for the 2-frame VLM input (VLMConfig.prev_frame_s) by the pipeline and the dataset builders alike.
+    With gap_s <= 0 it stores nothing.
+    """
+
+    def __init__(self, gap_s: float, slack_s: float = 0.5):
+        self.gap_s = gap_s
+        self.slack_s = slack_s
+        self._frames: deque[tuple[float, np.ndarray]] = deque()
+
+    def push(self, t: float, frame: np.ndarray) -> None:
+        if self.gap_s <= 0:
+            return
+        self._frames.append((t, frame))
+        while self._frames and t - self._frames[0][0] > self.gap_s + self.slack_s:
+            self._frames.popleft()
+
+    def before(self, t: float) -> np.ndarray | None:
+        """Newest stored frame at least `gap_s` older than `t`; None until enough history exists."""
+        best = None
+        for ts, frame in self._frames:
+            if ts > t - self.gap_s + 1e-6:
+                break
+            best = frame
+        return best
+
+    def reset(self) -> None:
+        self._frames.clear()
+
 
 
 def iter_frames(source: str, max_frames: int | None = None, image_fps: float = 10.0

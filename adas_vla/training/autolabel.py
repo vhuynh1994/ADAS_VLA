@@ -12,9 +12,11 @@ from pathlib import Path
 import cv2
 
 from ..config import Config
+from ..datasets.common import PREV_FRAME_S, lead_meta
 from ..pipeline import ADASPipeline
-from ..sources import iter_frames
+from ..sources import FrameHistory, iter_frames
 from ..types import EgoState
+
 
 
 def autolabel(cfg: Config, source: str, out_dir: Path, every: int = 15, max_frames: int | None = None) -> None:
@@ -30,16 +32,25 @@ def autolabel(cfg: Config, source: str, out_dir: Path, every: int = 15, max_fram
     stem = Path(source).stem
     written = 0
 
+    history = FrameHistory(PREV_FRAME_S)
     with labels_path.open("a") as f:
         for idx, t, frame in iter_frames(source, max_frames):
+            history.push(t, frame)
             res = pipe.process(frame, idx, t, ego)
             if idx % every != 0:
                 continue
             name = f"{stem}_{idx:06d}.jpg"
             cv2.imwrite(str(frames_dir / name), frame)
+            prev = history.before(t)
+            if prev is not None:
+                cv2.imwrite(str(frames_dir / f"{stem}_{idx:06d}_prev.jpg"), prev)
             vlm_fresh = res.vlm_decision is not None and res.vlm_decision.frame_idx == idx
             rec = {
                 "image": f"frames/{name}",
+                "image_prev": f"frames/{stem}_{idx:06d}_prev.jpg" if prev is not None else None,
+                "prev_frame_s": PREV_FRAME_S if prev is not None else None,
+                "lead": lead_meta(res.context),
+
                 "ego_speed_kmh": ego.speed_kmh,
                 "cruise_speed_kmh": cfg.control.cruise_speed_kmh,
                 "context": res.context.summary_text(),

@@ -184,7 +184,9 @@ def cmd_train(args) -> None:
     cfg = _load_cfg(args)
     train(cfg, TrainArgs(data=args.data, output_dir=args.output, epochs=args.epochs, lr=args.lr,
                          grad_accum=args.grad_accum, lora_r=args.lora_r, val_data=args.val_data,
-                         max_class_share=args.max_class_share, init_adapter=args.init_adapter))
+                         max_class_share=args.max_class_share, init_adapter=args.init_adapter,
+                         workers=args.workers, brake_weight=args.brake_weight))
+
 
 
 def cmd_eval(args) -> None:
@@ -379,7 +381,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--init-adapter", help="warm start from this LoRA adapter directory")
     p.add_argument("--max-class-share", type=float, default=0.35,
                    help="cap each label's share of an epoch (1.0 = no balancing)")
+    p.add_argument("--workers", type=int, default=2, help="DataLoader workers preparing samples for the GPU")
+    p.add_argument("--brake-weight", type=float, default=1.0,
+                   help="loss weight of DECELERATE/BRAKE/STOP samples (e.g. 2.0 to fight under-braking)")
     p.set_defaults(func=cmd_train)
+
 
     p = sub.add_parser("eval", help="evaluate action accuracy / JSON validity / latency on a dataset")
     _add_common(p)

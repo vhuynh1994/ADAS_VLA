@@ -8,17 +8,18 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from PIL import Image
-
 from ..config import Config
 from ..reasoning.prompts import decision_messages
-from ..reasoning.vlm import load_model_and_processor, to_pil
-from .data import load_records, target_json
+from ..reasoning.vlm import encode_messages, load_model_and_processor
+from ..types import LongAction
+from .data import load_records, sample_visual, target_json
+
 
 # Attention + MLP projections of the language model only (anything under `visual` is excluded).
 LORA_TARGET_REGEX = r"^(?!.*visual).*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"
@@ -38,6 +39,9 @@ class TrainArgs:
     max_class_share: float = 0.35  # cap each (longitudinal, lateral) label at this share of an epoch
     init_adapter: str | None = None  # continue training from an existing LoRA adapter (warm start)
     val_limit: int = 150  # val-loss subset size (full evaluation is `adas-vla eval`)
+    workers: int = 2  # DataLoader workers: decode images and tokenize while the GPU trains (0 = main thread)
+    brake_weight: float = 1.0  # loss multiplier for samples labelled DECELERATE / BRAKE / STOP (targets under-braking)
+
 
 
 def label_key(rec: dict) -> tuple[str, str]:
@@ -69,15 +73,23 @@ def balanced_epoch(records: list[dict], max_share: float, rng: random.Random) ->
     return order
 
 
+def sample_weight(rec: dict, brake_weight: float) -> float:
+    """Up-weight samples whose label asks to slow down or brake: missing those is the under-braking error."""
+    try:
+        braking = LongAction(label_key(rec)[0]).rank >= LongAction.DECELERATE.rank
+    except ValueError:
+        braking = False
+    return brake_weight if braking else 1.0
+
+
 def build_example(processor, rec: dict, cfg: Config) -> dict:
     """Tokenize one sample; loss is computed on the assistant answer only."""
-    image = to_pil(Image.open(rec["image_path"]), cfg.vlm.image_max_side, cfg.vlm.image_size)
-    prompt = decision_messages(image, rec["context"], rec["ego_speed_kmh"], rec["cruise_speed_kmh"],
-                               cfg.vlm.language)
+    prompt = decision_messages(sample_visual(rec, cfg), rec["context"], rec["ego_speed_kmh"],
+                               rec["cruise_speed_kmh"], cfg.vlm.language)
     full = prompt + [{"role": "assistant", "content": [{"type": "text", "text": target_json(rec["target"])}]}]
-    kwargs = dict(tokenize=True, return_dict=True, return_tensors="pt")
-    enc_full = processor.apply_chat_template(full, **kwargs)
-    enc_prompt = processor.apply_chat_template(prompt, add_generation_prompt=True, **kwargs)
+    enc_full = encode_messages(processor, full, add_generation_prompt=False)
+    enc_prompt = encode_messages(processor, prompt, add_generation_prompt=True)
+
     n_prompt = enc_prompt["input_ids"].shape[1]
     if not bool((enc_full["input_ids"][0, :n_prompt] == enc_prompt["input_ids"][0]).all()):
         raise RuntimeError("Chat template prefix mismatch: cannot mask the prompt reliably")
@@ -91,14 +103,42 @@ def _to_device(batch: dict, device) -> dict:
     return {k: v.to(device) if hasattr(v, "to") else v for k, v in batch.items()}
 
 
+class _Examples:
+    """Map-style dataset over one epoch order; DataLoader workers do the image decoding and tokenization."""
+
+    def __init__(self, processor, records: list[dict], order: list[int], cfg: Config):
+        self.processor, self.records, self.order, self.cfg = processor, records, order, cfg
+
+    def __len__(self) -> int:
+        return len(self.order)
+
+    def __getitem__(self, i: int) -> dict:
+        return build_example(self.processor, self.records[self.order[i]], self.cfg)
+
+
+def _identity(x):
+    return x
+
+
+def _loader(processor, records: list[dict], order: list[int], cfg: Config, workers: int):
+    from torch.utils.data import DataLoader
+
+    # batch_size=None: one pre-tokenized sample per step (batch dim 1), prepared ahead of the GPU by the workers.
+    return DataLoader(_Examples(processor, records, order, cfg), batch_size=None, shuffle=False,
+                      num_workers=workers, collate_fn=_identity, prefetch_factor=4 if workers else None)
+
+
+
 def train(cfg: Config, args: TrainArgs) -> None:
     import torch
     from peft import LoraConfig, get_peft_model
     from transformers import get_cosine_schedule_with_warmup
 
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")  # forked DataLoader workers + fast tokenizer
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     all_records = load_records(args.data)
+
     records = [r for r in all_records if r.get("split", "train") == "train"]
     val_records = load_records(args.val_data) if args.val_data else \
         [r for r in all_records if r.get("split") == "val"]
@@ -110,7 +150,10 @@ def train(cfg: Config, args: TrainArgs) -> None:
     print(f"Train samples: {len(records)}, val-loss samples: {len(val_records)}")
     print("Train label counts:", {f"{a}/{b}": n for (a, b), n in sorted(counts.items(), key=lambda kv: -kv[1])})
     epoch_size = len(balanced_epoch(records, args.max_class_share, random.Random(0)))
-    print(f"Balanced epoch size: {epoch_size} (max class share {args.max_class_share:.0%})")
+    print(f"Balanced epoch size: {epoch_size} (max class share {args.max_class_share:.0%}), "
+          f"brake weight {args.brake_weight:g}, {args.workers} loader workers, "
+          f"{'2-frame' if cfg.vlm.prev_frame_s > 0 else 'single-frame'} input")
+
 
     model, processor = load_model_and_processor(cfg.vlm, for_training=True)
     # QLoRA without peft's fp32 upcast of all non-quantized weights: bf16 is stable for LoRA here and
@@ -145,9 +188,10 @@ def train(cfg: Config, args: TrainArgs) -> None:
     for epoch in range(args.epochs):
         model.train()
         order = balanced_epoch(records, args.max_class_share, rng)
-        for i, rec_idx in enumerate(order):
-            batch = _to_device(build_example(processor, records[rec_idx], cfg), device)
-            loss = model(**batch).loss / args.grad_accum
+        for i, (rec_idx, example) in enumerate(zip(order, _loader(processor, records, order, cfg, args.workers))):
+            batch = _to_device(example, device)
+            loss = model(**batch).loss * sample_weight(records[rec_idx], args.brake_weight) / args.grad_accum
+
             loss.backward()
             running += loss.item()
             if (i + 1) % args.grad_accum == 0 or i == len(order) - 1:

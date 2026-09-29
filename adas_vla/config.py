@@ -41,6 +41,11 @@ class PerceptionConfig:
     lane_detection: bool = True
     lane_model: str = "yolop"  # yolop (CNN, robust to faded markings) | classic (Canny + Hough)
     lane_weights: str = "models/yolop/yolop-640-640.onnx"
+    # Cut-in detection: an adjacent vehicle within cut_in_max_distance_m whose lateral gap to the ego corridor
+    # shrinks faster than cut_in_rate (corridor widths per second) is reported as cutting in.
+    cut_in_rate: float = 0.25
+    cut_in_max_distance_m: float = 30.0
+
 
 
 @dataclass
@@ -60,9 +65,15 @@ class VLMConfig:
     image_max_side: int = 640
     max_new_tokens: int = 64
     generate_reason: bool = False  # False: stop after the decision fields (latency); True: also the reason text
+    # > 0: feed the frame this many seconds earlier together with the current one as a 2-frame video. Qwen2.5-VL
+    # packs 2 frames into one temporal patch, so this costs no extra visual tokens; 0.5 s matches its default
+    # 2 fps video sampling. 0 = single image. Needs a model fine-tuned with the same setting.
+    prev_frame_s: float = 0.0
     # greedy: most likely action | cautious: escalate to DECELERATE / BRAKE when the probability of needing
     # at least that much braking reaches the threshold (trades some false slowdowns for fewer missed ones)
+    # | cautious_gated: cautious only when perception corroborates a hazard (types.context_has_hazard_cue)
     action_policy: str = "greedy"
+
     cautious_tau_decel: float = 0.35
     cautious_tau_brake: float = 0.30
     temperature: float = 0.0  # 0 = greedy decoding
@@ -95,6 +106,12 @@ class SafetyConfig:
     ldw_offset: float = 0.6  # |lane offset| above this triggers lane departure warning
     allow_lane_change: bool = False  # L2 ADAS: lane changes need driver confirmation
     max_speed_kmh: float = 130.0
+    # Interventions are Schmitt triggers: once active, AEB / FCW release only when their thresholds are cleared
+    # by `hysteresis` (x1.3), and stay active at least `*_hold_s` after the last trigger (no single-frame flapping).
+    aeb_hold_s: float = 0.5
+    fcw_hold_s: float = 1.0
+    hysteresis: float = 1.3
+
 
 
 @dataclass

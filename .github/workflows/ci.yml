@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # The unit tests need no GPU, no model weights and no torch: only the light runtime deps.
+      - run: pip install numpy opencv-python-headless pillow pyyaml pytest
+      - name: Syntax check every module (also the ones the tests never import)
+        run: python -m compileall -q adas_vla scripts
+      - run: python -m pytest -q
+      - name: Safety-gate golden vectors are up to date
+        run: python scripts/safety_golden.py --check

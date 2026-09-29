@@ -11,13 +11,16 @@ from pathlib import Path
 import cv2
 
 from .reasoning.prompts import VLM_LAT_ACTIONS, VLM_LONG_ACTIONS
+from .training.evaluate import wilson_interval
 
 ACCEPTANCE = [  # (metric, label, target, higher_is_better)
     ("joint_accuracy", "Joint action accuracy", 0.85, True),
-    ("under_braking_rate", "Under-braking rate", 0.01, False),
+    ("under_braking_rate", "Under-braking rate (VLM alone)", 0.01, False),
+    ("system_under_braking_rate", "Under-braking rate (VLM + safety gate)", 0.01, False),
     ("json_valid_rate", "Valid JSON", 1.0, True),
     ("latency_p50_s", "Latency p50 (s)", 1.0, False),
 ]
+
 
 
 def _load(path: str) -> list[dict]:
@@ -31,21 +34,44 @@ def summarize(rows: list[dict]) -> dict:
 
     n = len(rows)
     valid = [r for r in rows if r["pred"]]
+    replayed = [r for r in rows if r.get("final")]  # eval reports written with stored `lead` perception
+
     def ok(r, k):
         return r["pred"] and r["pred"][k] == r["gt"][k]
-    under = sum(1 for r in valid if LongAction(r["gt"]["longitudinal"]).rank >= LongAction.DECELERATE.rank
-                and LongAction(r["pred"]["longitudinal"]).rank < LongAction(r["gt"]["longitudinal"]).rank)
-    lat = sorted(r["latency_s"] for r in rows)
-    return {
-        "samples": n,
-        "json_valid_rate": len(valid) / max(1, n),
-        "joint_accuracy": sum(ok(r, "longitudinal") and ok(r, "lateral") for r in rows) / max(1, n),
-        "longitudinal_accuracy": sum(bool(ok(r, "longitudinal")) for r in rows) / max(1, n),
-        "lateral_accuracy": sum(bool(ok(r, "lateral")) for r in rows) / max(1, n),
-        "under_braking_rate": under / max(1, n),
-        "latency_p50_s": lat[len(lat) // 2] if lat else 0.0,
-        "latency_p90_s": lat[min(len(lat) - 1, int(len(lat) * 0.9))] if lat else 0.0,
+
+    def under(r, key):
+        gt, pred = LongAction(r["gt"]["longitudinal"]), LongAction(r[key]["longitudinal"])
+        return gt.rank >= LongAction.DECELERATE.rank and pred.rank < gt.rank
+
+    counts = {
+        "joint_accuracy": sum(bool(ok(r, "longitudinal") and ok(r, "lateral")) for r in rows),
+        "longitudinal_accuracy": sum(bool(ok(r, "longitudinal")) for r in rows),
+        "lateral_accuracy": sum(bool(ok(r, "lateral")) for r in rows),
+        "under_braking_rate": sum(under(r, "pred") for r in valid),
     }
+    lat = sorted(r["latency_s"] for r in rows)
+    metrics = {"samples": n, "json_valid_rate": len(valid) / max(1, n)}
+    for key, k in counts.items():
+        metrics[key] = k / max(1, n)
+        metrics[key + "_ci95"] = wilson_interval(k, n)
+    system_under = sum(under(r, "final") for r in replayed)
+    metrics["system_under_braking_rate"] = system_under / len(replayed) if replayed else None
+    metrics["system_under_braking_rate_ci95"] = wilson_interval(system_under, len(replayed)) if replayed else None
+    metrics["replayed_samples"] = len(replayed)
+    metrics["latency_p50_s"] = lat[len(lat) // 2] if lat else 0.0
+    metrics["latency_p90_s"] = lat[min(len(lat) - 1, int(len(lat) * 0.9))] if lat else 0.0
+    return metrics
+
+
+def _rate_cell(metrics: dict, key: str, css: str = "") -> str:
+    """'72.6% (69.6–75.4)' with the 95% interval, or '—' when the metric is not available for this run."""
+    v = metrics.get(key)
+    if v is None:
+        return "<td class='muted'>—</td>"
+    ci = metrics.get(key + "_ci95")
+    span = f" <span class='muted'>({ci[0]:.1%}–{ci[1]:.1%})</span>" if ci else ""
+    return f"<td class='{css}'>{v:.1%}{span}</td>"
+
 
 
 def _thumb(path: Path, width: int = 360) -> str:
@@ -81,22 +107,33 @@ def build_report(runs: dict[str, str], data_dir: str, out: str, title: str, note
 
     rows_html = ""
     for key, label, target, higher in ACCEPTANCE:
+        if all(metrics[name].get(key) is None for name in names):
+            continue  # e.g. no run was evaluated on a dataset with stored perception
         cells = ""
         for name in names:
-            v = metrics[name][key]
+            v = metrics[name].get(key)
+            if v is None:
+                cells += "<td class='muted'>—</td>"
+                continue
             passed = v >= target if higher else v <= target
-            shown = f"{v:.2f} s" if key.startswith("latency") else f"{v:.1%}"
-            cells += f"<td class='{'pass' if passed else 'fail'}'>{shown} {'✓' if passed else '✗'}</td>"
+            css = "pass" if passed else "fail"
+            mark = "✓" if passed else "✗"
+            if key.startswith("latency"):
+                cells += f"<td class='{css}'>{v:.2f} s {mark}</td>"
+            else:
+                cells += _rate_cell(metrics[name], key, css).replace("</td>", f" {mark}</td>")
         tshown = f"≤ {target:.1f} s" if key.startswith("latency") else (
             f"{target:.0%}" if target == 1.0 else f"≥ {target:.0%}" if higher else f"≤ {target:.0%}")
         rows_html += f"<tr><th>{label}</th><td class='muted'>{tshown}</td>{cells}</tr>"
     for key, label in (("longitudinal_accuracy", "Longitudinal accuracy"), ("lateral_accuracy", "Lateral accuracy"),
-                       ("latency_p90_s", "Latency p90 (s)"), ("samples", "Samples")):
+                       ("latency_p90_s", "Latency p90 (s)"), ("samples", "Samples"),
+                       ("replayed_samples", "Samples with stored perception (gate replay)")):
         cells = "".join(
             f"<td>{metrics[n][key]:.2f} s</td>" if key.startswith("latency") else
-            (f"<td>{metrics[n][key]}</td>" if key == "samples" else f"<td>{metrics[n][key]:.1%}</td>")
+            (f"<td>{metrics[n][key]}</td>" if key.endswith("samples") else _rate_cell(metrics[n], key))
             for n in names)
         rows_html += f"<tr><th>{label}</th><td></td>{cells}</tr>"
+
     # Per-source breakdown (joint accuracy / under-braking), from the dataset's labels.jsonl.
     source_of = {}
     labels_path = Path(data_dir) / "labels.jsonl"
@@ -169,7 +206,9 @@ figure {{ margin:0; background:var(--panel); border:1px solid var(--line); borde
 figure img {{ width:100%; display:block; }} figcaption {{ padding:8px 10px; font-size:12.5px; }}
 .ok b {{ color:var(--ok); }} .bad b {{ color:var(--bad); }} .notes {{ white-space:pre-wrap; }}
 </style></head><body><main>
-<h1>{html.escape(title)}</h1><p class="muted">Evaluated on the held-out val split (whole videos never seen in training).</p>
+<h1>{html.escape(title)}</h1><p class="muted">Evaluated on the held-out val split (whole videos never seen in training).
+Rates show their 95% Wilson interval; two runs whose intervals overlap widely are not distinguishable on this val set.</p>
+
 <div class="card"><table><tr><th>Metric</th><th>Target</th>{head_cells}</tr>{rows_html}</table></div>
 {f"<h2>Notes</h2><div class='card notes'>{html.escape(notes)}</div>" if notes else ""}
 <h2>Confusion matrices</h2><div class="cms">{cms}</div>

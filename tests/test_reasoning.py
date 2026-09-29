@@ -189,3 +189,101 @@ def test_choose_action_cautious_escalates_but_never_relaxes():
     assert choose_action(p2, "cautious", 0.35, 0.3) == "BRAKE"  # P(>= BRAKE) = 0.35
     p3 = {"ACCELERATE": 0.0, "KEEP": 0.1, "DECELERATE": 0.1, "BRAKE": 0.1, "STOP": 0.7}
     assert choose_action(p3, "cautious", 0.35, 0.3) == "STOP"  # never relaxed
+
+
+def test_choose_action_gated_needs_perception_cue():
+    from adas_vla.reasoning.vlm import choose_action
+
+    p = {"ACCELERATE": 0.05, "KEEP": 0.55, "DECELERATE": 0.25, "BRAKE": 0.10, "STOP": 0.05}
+    assert choose_action(p, "cautious_gated", 0.35, 0.3, cue=False) == "KEEP"
+    assert choose_action(p, "cautious_gated", 0.35, 0.3, cue=True) == "DECELERATE"
+    assert choose_action(p, "cautious", 0.35, 0.3, cue=False) == "DECELERATE"  # the ungated policy ignores it
+
+
+def test_decision_messages_two_frame_video():
+    msgs = decision_messages(["PREV", "NOW"], "Lane: ok.", 50, 60)
+    assert msgs[1]["content"][0] == {"type": "video", "video": ["PREV", "NOW"]}
+    assert msgs[1]["content"][1]["type"] == "text"
+
+
+def test_encode_messages_routes_video_frames_to_processor():
+    from adas_vla.reasoning.vlm import encode_messages
+
+    calls = []
+
+    class FakeProcessor:
+        def apply_chat_template(self, messages, tokenize, add_generation_prompt, **kw):
+            calls.append(("template", tokenize, add_generation_prompt))
+            return {"input_ids": [[1]]} if tokenize else "TEXT"
+
+        def __call__(self, text, images, videos, return_tensors):
+            calls.append(("processor", text, images, videos))
+            return {"input_ids": [[1, 2]]}
+
+    assert encode_messages(FakeProcessor(), decision_messages(["P", "N"], "ctx", 50, 60), True) == {"input_ids": [[1, 2]]}
+    assert calls == [("template", False, True), ("processor", ["TEXT"], None, [["P", "N"]])]
+    calls.clear()
+    encode_messages(FakeProcessor(), decision_messages("IMG", "ctx", 50, 60), add_generation_prompt=False)
+    assert calls == [("template", True, False)]  # single image: the processor's own template path
+
+
+def test_sample_visual_pairs_frames(tmp_path):
+    from PIL import Image
+
+    from adas_vla.config import Config
+    from adas_vla.training.data import sample_visual
+
+    for name in ("a.jpg", "a_prev.jpg"):
+        Image.new("RGB", (640, 360), (10, 20, 30)).save(tmp_path / name)
+    cfg = Config()
+    rec = {"image_path": str(tmp_path / "a.jpg"), "image_prev_path": str(tmp_path / "a_prev.jpg")}
+    assert sample_visual(rec, cfg).size == (560, 308)  # single frame by default
+    cfg.vlm.prev_frame_s = 0.5
+    pair = sample_visual(rec, cfg)
+    assert isinstance(pair, list) and len(pair) == 2 and all(im.size == (560, 308) for im in pair)
+    pair = sample_visual({"image_path": str(tmp_path / "a.jpg"), "image_prev_path": None}, cfg)
+    assert pair[0] is pair[1]  # no earlier frame stored: the current frame twice (= a single image to Qwen)
+
+
+def test_wilson_interval():
+    from adas_vla.training.evaluate import wilson_interval
+
+    lo, hi = wilson_interval(653, 900)
+    assert lo < 653 / 900 < hi and 0.69 < lo < 0.70 and 0.75 < hi < 0.76
+    assert wilson_interval(0, 50)[0] == 0.0 and wilson_interval(0, 0) == (0.0, 0.0)
+
+
+def test_gate_replay_from_stored_lead():
+    from adas_vla.config import Config
+    from adas_vla.training.evaluate import gate_offline, under_brakes
+
+    cfg = Config()
+    keep = parse_decision('{"longitudinal": "KEEP", "target_speed_kmh": 60}', 50)
+    rec = {"ego_speed_kmh": 50.0, "cruise_speed_kmh": 60.0,
+           "lead": {"cls": "car", "distance_m": 12.0, "closing_speed_mps": 12.0, "ttc_s": 1.0, "cutting_in": False}}
+    final = gate_offline(cfg, rec, keep)
+    assert final.longitudinal is LongAction.EMERGENCY_BRAKE and final.source == "safety"
+    assert under_brakes(LongAction.BRAKE, keep.longitudinal) and not under_brakes(LongAction.BRAKE, final.longitudinal)
+    no_lead = {"ego_speed_kmh": 50.0, "cruise_speed_kmh": 60.0, "lead": None}
+    assert gate_offline(cfg, no_lead, keep).longitudinal is LongAction.KEEP
+    # the sample's own cruise speed sets the envelope: a highway ACCELERATE must not become a DECELERATE
+    fast = parse_decision('{"longitudinal": "ACCELERATE", "target_speed_kmh": 95}', 90)
+    highway = {"ego_speed_kmh": 90.0, "cruise_speed_kmh": 90.0, "lead": None}
+    assert gate_offline(cfg, highway, fast).longitudinal is LongAction.ACCELERATE
+
+
+def test_report_summary_has_intervals_and_gate_replay():
+    from adas_vla.report import summarize
+
+    def row(gt, pred, final=None):
+        def mk(a):
+            return {"longitudinal": a, "lateral": "KEEP_LANE", "target_speed_kmh": 50, "risk": "low", "reason": ""}
+        return {"image": "x", "gt": mk(gt), "pred": mk(pred), "final": mk(final) if final else None, "latency_s": 0.9}
+
+    rows = [row("BRAKE", "KEEP", "EMERGENCY_BRAKE"), row("KEEP", "KEEP", "KEEP"), row("DECELERATE", "KEEP"),
+            row("KEEP", "KEEP")]
+    m = summarize(rows)
+    assert m["under_braking_rate"] == 0.5 and m["system_under_braking_rate"] == 0.0 and m["replayed_samples"] == 2
+    lo, hi = m["joint_accuracy_ci95"]
+    assert lo < m["joint_accuracy"] == 0.5 < hi
+    assert summarize(rows[2:])["system_under_braking_rate"] is None  # nothing to replay

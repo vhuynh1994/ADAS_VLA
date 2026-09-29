@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+
 
 
 class LongAction(str, Enum):
@@ -61,6 +63,12 @@ class Detection:
         return (x1 + x2) / 2, y2
 
     oncoming: bool = False  # moving toward the ego vehicle (e.g. opposite carriageway)
+    cutting_in: bool = False  # adjacent vehicle moving into the ego corridor (see MotionEstimator)
+
+    @property
+    def threatening(self) -> bool:
+        """Objects we could hit: in the ego path, or about to enter it."""
+        return self.in_ego_path or self.cutting_in
 
     def describe(self) -> str:
         name = self.cls_name if not self.attribute else f"{self.cls_name} ({self.attribute})"
@@ -69,15 +77,18 @@ class Detection:
             parts.append(f"~{self.distance_m:.0f} m")
         if self.in_ego_path:
             parts.append("IN EGO LANE")
+        elif self.cutting_in:
+            parts.append(f"CUTTING IN from the {'left' if self.position == 'front-left' else 'right'}")
         if self.oncoming:
             parts.append("oncoming traffic")
-        elif self.in_ego_path and self.closing_speed_mps is not None and abs(self.closing_speed_mps) > 0.5:
+        elif self.threatening and self.closing_speed_mps is not None and abs(self.closing_speed_mps) > 0.5:
             # Relative motion only matters for objects we could hit; for others it misleads the VLM.
             verb = "closing in" if self.closing_speed_mps > 0 else "pulling away"
             parts.append(f"{verb} at {abs(self.closing_speed_mps) * 3.6:.0f} km/h")
-        if self.ttc_s is not None and self.in_ego_path:
+        if self.ttc_s is not None and self.threatening:
             parts.append(f"TTC {self.ttc_s:.1f} s")
         return ", ".join(parts)
+
 
 
 @dataclass
@@ -152,10 +163,10 @@ class SceneContext:
     lanes: LaneInfo = field(default_factory=LaneInfo)
 
     def lead_object(self) -> Detection | None:
-        """Nearest object in the ego path (vehicle or vulnerable road user)."""
+        """Nearest object in the ego path, or cutting into it (vehicle or vulnerable road user)."""
         candidates = [
             d for d in self.detections
-            if d.in_ego_path and d.distance_m is not None
+            if d.threatening and d.distance_m is not None
             and (d.cls_name in VEHICLE_CLASSES or d.cls_name in VRU_CLASSES)
         ]
         return min(candidates, key=lambda d: d.distance_m) if candidates else None
@@ -163,7 +174,8 @@ class SceneContext:
     def summary_text(self, max_objects: int = 8) -> str:
         """Compact textual description of perception output, used in the VLM prompt."""
         lines = [f"Lane: {self.lanes.describe()}."]
-        ranked = sorted(self.detections, key=lambda d: (not d.in_ego_path, d.distance_m or 1e9))
+        ranked = sorted(self.detections, key=lambda d: (not d.threatening, d.distance_m or 1e9))
+
         if ranked:
             lines.append("Detected objects (monocular distance estimates):")
             lines += [f"- {d.describe()}" for d in ranked[:max_objects]]
@@ -172,6 +184,28 @@ class SceneContext:
         else:
             lines.append("Detected objects: none.")
         return "\n".join(lines)
+
+
+_DISTANCE_RE = re.compile(r"~(\d+(?:\.\d+)?) m")
+
+
+def context_has_hazard_cue(context_text: str, max_distance_m: float = 40.0) -> bool:
+    """Does the perception summary (`summary_text()`) show a reason to slow down?
+
+    True for an object in the ego lane or cutting into it within `max_distance_m` that is not pulling away,
+    or a red traffic light. Parsed from the text so the same rule applies online (`VisionLanguageModel.decide`)
+    and offline on logged eval records (`scripts/sweep_policy.py`).
+    """
+    for line in context_text.splitlines():
+        if "traffic light (red)" in line:
+            return True
+        if ("IN EGO LANE" not in line and "CUTTING IN" not in line) or "pulling away" in line:
+            continue
+        m = _DISTANCE_RE.search(line)
+        if m is None or float(m.group(1)) <= max_distance_m:
+            return True
+    return False
+
 
 
 @dataclass

@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Callable
 
 from ..config import Config
-from ..sources import iter_frames, source_fps
+from ..sources import FrameHistory, iter_frames, source_fps
 from ..types import EgoState
-from .common import RecordWriter, split_for, template_reason
+from .common import PREV_FRAME_S, RecordWriter, lead_meta, split_for, template_reason
+
 
 
 @dataclass
@@ -83,10 +84,13 @@ def build(cfg: Config, source: ClipSource, out_dir: Path, val_percent: int = 20,
         split = split_for(group, val_percent)
         ego = EgoState(source.ego_speed(video))
         pipe.reset()
+        history = FrameHistory(PREV_FRAME_S)
         n = 0
         for idx, t, frame in iter_frames(str(video), max_frames_per_video):
+            history.push(t, frame)
             if idx % step and idx % stride:
                 continue
+
             res = pipe.process(frame, idx, t, ego)
             if idx % step:
                 continue
@@ -105,7 +109,9 @@ def build(cfg: Config, source: ClipSource, out_dir: Path, val_percent: int = 20,
                 "teacher_raw": pipe.last_raw if fresh else None,
                 "alerts": [a.kind for a in res.alerts], "reviewed": False,
                 "flags": [] if fresh or not cfg.vlm.enabled else ["teacher output unusable"],
-            })
+                "lead": lead_meta(res.context),
+            }, prev_frame=history.before(t))
+
             n += 1
         print(f"  [{k + 1}/{len(source.videos)}] {vid}: {n} samples, split={split}", flush=True)
     writer.close()

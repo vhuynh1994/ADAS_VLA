@@ -156,3 +156,86 @@ def test_nexar_sample_times():
     short = sample_times(alert=5.0, event=5.3)
     assert [a for _, a in short].count(LongAction.BRAKE) == 1 and all(t < 5.3 for t, _ in short)
     assert all(t >= 0.5 for t, _ in short)  # no KEEP sample before the video starts
+
+
+def test_clipped_box_uses_width_and_ground_plane():
+    from adas_vla.perception.geometry import ground_distance
+
+    f = focal_length_px(1280, 60.0)
+    truck = Detection("truck", 0.9, (300, 500, 1000, 715))  # bottom edge cut by the frame: only 215 px tall
+    assert estimate_distance(truck, f) == pytest.approx(f * 3.0 / 215)  # the height alone says ~15 m
+    close = estimate_distance(truck, f, frame_height=720, cam_height_m=1.3)
+    assert close == pytest.approx(min(f * 2.5 / 700, ground_distance(715, f, 720, 1.3))) and close < 5
+    unclipped = Detection("truck", 0.9, (300, 500, 1000, 690))
+    assert estimate_distance(unclipped, f, 720, 1.3) == pytest.approx(estimate_distance(unclipped, f))
+    # applied by the MotionEstimator: the same truck in the corridor is a lead a few metres away
+    est = MotionEstimator(Config().camera)
+    est.update([truck], 0.0, LaneInfo(image_width=1280), 1280, 720)
+    assert truck.in_ego_path and truck.distance_m < 5
+
+
+def test_cut_in_detected_then_becomes_lead():
+    from adas_vla.types import EgoState, SceneContext
+
+    cfg = Config()
+    est = MotionEstimator(cfg.camera, dist_alpha=1.0, vel_alpha=1.0)
+    h_px = focal_length_px(1280, cfg.camera.hfov_deg) * 1.5 / 20  # car 20 m ahead
+    lanes = LaneInfo(image_width=1280)
+    seen = []
+    for k, x1 in enumerate([1000, 960, 920, 880, 840]):  # right lane, moving left into our corridor (10 Hz)
+        det = Detection("car", 0.9, (x1, 600 - h_px, x1 + 100, 600), track_id=5)
+        est.update([det], k * 0.1, lanes, 1280, 720)
+        seen.append((det.cutting_in, det.in_ego_path))
+    assert seen[:3] == [(False, False)] * 3  # not enough history to judge the lateral motion
+    assert seen[3] == (True, False)  # closing on the corridor fast, about to overlap it
+    assert seen[4] == (False, True)  # inside the corridor: simply the lead now
+    det = Detection("car", 0.9, (880, 600 - h_px, 980, 600), track_id=5, distance_m=20.0, cutting_in=True,
+                    position="front-right", closing_speed_mps=2.0)
+    ctx = SceneContext(0, 0.0, 1280, 720, EgoState(50), [det], lanes)
+    assert ctx.lead_object() is det
+    assert "CUTTING IN from the right" in det.describe() and "closing in" in det.describe()
+
+
+def test_adjacent_car_wobble_is_not_a_cut_in():
+    cfg = Config()
+    est = MotionEstimator(cfg.camera, dist_alpha=1.0, vel_alpha=1.0)
+    h_px = focal_length_px(1280, cfg.camera.hfov_deg) * 1.5 / 20
+    for k in range(12):
+        x1 = 940 + (6 if k % 2 else -6)  # box jitter of an adjacent car driving straight
+        det = Detection("car", 0.9, (x1, 600 - h_px, x1 + 100, 600), track_id=9)
+        est.update([det], k * 0.1, LaneInfo(image_width=1280), 1280, 720)
+        assert not det.cutting_in and not det.in_ego_path
+
+
+def test_frame_history_returns_frame_gap_earlier():
+    from adas_vla.sources import FrameHistory
+
+    hist = FrameHistory(0.5)
+    for i in range(11):
+        hist.push(i * 0.1, np.full((2, 2), i, np.uint8))
+    assert hist.before(0.3) is None
+    assert int(hist.before(1.0)[0, 0]) == 5  # the frame at t = 0.5
+    assert int(hist.before(0.75)[0, 0]) == 2  # newest frame at least 0.5 s old
+    hist.reset()
+    assert hist.before(1.0) is None
+    off = FrameHistory(0.0)
+    off.push(0.0, np.zeros((2, 2), np.uint8))
+    assert off.before(1.0) is None  # disabled: stores nothing
+
+
+def test_hazard_cue_from_perception_summary():
+    from adas_vla.types import EgoState, SceneContext, context_has_hazard_cue
+
+    lanes = LaneInfo(image_width=1280)
+
+    def summary(**kw):
+        det = Detection("car", 0.9, (600, 400, 700, 480), **kw)
+        return SceneContext(0, 0.0, 1280, 720, EgoState(50), [det], lanes).summary_text()
+
+    assert context_has_hazard_cue(summary(distance_m=25, in_ego_path=True, closing_speed_mps=3.0))
+    assert not context_has_hazard_cue(summary(distance_m=25, in_ego_path=True, closing_speed_mps=-3.0))  # pulling away
+    assert not context_has_hazard_cue(summary(distance_m=60, in_ego_path=True))  # too far
+    assert not context_has_hazard_cue(summary(distance_m=10, in_ego_path=False))  # not in our lane
+    assert context_has_hazard_cue(summary(distance_m=20, cutting_in=True, position="front-left"))
+    assert context_has_hazard_cue("- traffic light (red), ahead, ~30 m")
+    assert not context_has_hazard_cue("Lane: lane lines not detected.\nDetected objects: none.")

@@ -73,9 +73,17 @@ def _language_note(language: str) -> str:
     return f"\nWrite the reason in {name}; keep keys and actions in English."
 
 
+def visual_content(image) -> dict:
+    """One image, or a list of frames (oldest first) sent as a short video (see VLMConfig.prev_frame_s)."""
+    if isinstance(image, (list, tuple)):
+        return {"type": "video", "video": list(image)}
+    return {"type": "image", "image": image}
+
+
 def decision_messages(image, context_text: str, ego_speed_kmh: float, cruise_speed_kmh: float,
                       language: str = "en") -> list[dict]:
-    """Chat messages asking the VLM for a driving decision on one frame."""
+    """Chat messages asking the VLM for a driving decision on one frame (or a [previous, current] pair)."""
+
     user_text = DECISION_USER_TEMPLATE.format(
         ego_speed=ego_speed_kmh, cruise_speed=cruise_speed_kmh, context=context_text,
         long_actions=_action_menu(LONG_ACTION_HELP), lat_actions=_action_menu(LAT_ACTION_HELP),
@@ -83,8 +91,9 @@ def decision_messages(image, context_text: str, ego_speed_kmh: float, cruise_spe
     )
     return [
         {"role": "system", "content": [{"type": "text", "text": DECISION_SYSTEM_PROMPT}]},
-        {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": user_text}]},
+        {"role": "user", "content": [visual_content(image), {"type": "text", "text": user_text}]},
     ]
+
 
 
 def chat_messages(image, context_text: str, ego_speed_kmh: float, history: list[tuple[str, str]],
