@@ -1,0 +1,8 @@
+# Teacher profile for `adas-vla build-dataset <clips>` / `adas-vla label`: Qwen2.5-VL-7B (Apache-2.0) in 4-bit.
+# The vision tower is quantized too so the 7B model fits next to YOLO + YOLOP on an 8 GB GPU.
+vlm:
+  model_id: Qwen/Qwen2.5-VL-7B-Instruct
+  quantization: 4bit
+  quantize_vision: true
+  image_size: [560, 308]
+  max_new_tokens: 64

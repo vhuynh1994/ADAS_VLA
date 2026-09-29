@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adas-vla"
+version = "0.1.0"
+description = "Vision-Language-Action pipeline for ADAS: YOLO perception + VLM reasoning + safety-supervised control"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "torchvision",
+    "transformers>=4.57",
+    "accelerate",
+    "peft",
+    "bitsandbytes",
+    "ultralytics",
+    "opencv-python",
+    "pyyaml",
+    "pillow",
+    "numpy",
+    "onnx",
+    "onnxruntime",
+    "onnx2torch",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+adas-vla = "adas_vla.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["adas_vla*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

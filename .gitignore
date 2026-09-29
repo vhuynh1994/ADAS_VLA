@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+outputs/
+checkpoints/
+*.pt
+*.mp4
+*.egg-info/
+models/
+docs/internal/

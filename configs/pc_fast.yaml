@@ -1,0 +1,8 @@
+# Fast iteration profile for the PC only: smaller Qwen3-VL-2B in bf16 (~4.5 GB VRAM).
+# Caveat: Qwen3-VL injects visual features into several LLM layers (DeepStack), which does not map onto
+# the standard "ViT -> masked_scatter -> LM" split used on the Hexagon NPU. Use for prototyping prompts only.
+
+vlm:
+  model_id: Qwen/Qwen3-VL-2B-Instruct
+  quantization: none
+  image_size: [576, 320]     # multiples of 32 for Qwen3-VL -> 18x10 = 180 visual tokens

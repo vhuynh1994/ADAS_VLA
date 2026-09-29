@@ -1,0 +1,12 @@
+# Smoke-test profile: tiny models (~1.5 GB download total) to verify the whole VLM/LLM code path quickly.
+# Output quality is NOT representative - use default.yaml (Qwen2.5-VL-3B + Qwen3-4B) for real evaluation.
+vlm:
+  model_id: HuggingFaceTB/SmolVLM-256M-Instruct   # Apache-2.0, 256M params
+  quantization: none
+  image_size: null
+  image_max_side: 512
+  max_new_tokens: 160
+
+llm:
+  model_id: Qwen/Qwen2.5-0.5B-Instruct            # Apache-2.0, 0.5B params
+  quantization: none
