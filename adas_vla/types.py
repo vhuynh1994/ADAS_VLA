@@ -7,7 +7,6 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 
 
-
 class LongAction(str, Enum):
     """Longitudinal meta-action (speed). Ordered by braking strength."""
 
@@ -88,7 +87,6 @@ class Detection:
         if self.ttc_s is not None and self.threatening:
             parts.append(f"TTC {self.ttc_s:.1f} s")
         return ", ".join(parts)
-
 
 
 @dataclass
@@ -175,7 +173,6 @@ class SceneContext:
         """Compact textual description of perception output, used in the VLM prompt."""
         lines = [f"Lane: {self.lanes.describe()}."]
         ranked = sorted(self.detections, key=lambda d: (not d.threatening, d.distance_m or 1e9))
-
         if ranked:
             lines.append("Detected objects (monocular distance estimates):")
             lines += [f"- {d.describe()}" for d in ranked[:max_objects]]
@@ -205,7 +202,6 @@ def context_has_hazard_cue(context_text: str, max_distance_m: float = 40.0) -> b
         if m is None or float(m.group(1)) <= max_distance_m:
             return True
     return False
-
 
 
 @dataclass

@@ -18,7 +18,6 @@ from ..sources import FrameHistory, iter_frames
 from ..types import EgoState
 
 
-
 def autolabel(cfg: Config, source: str, out_dir: Path, every: int = 15, max_frames: int | None = None) -> None:
     cfg.vlm.mode = "sync"
     cfg.vlm.every_n_frames = every
@@ -50,7 +49,6 @@ def autolabel(cfg: Config, source: str, out_dir: Path, every: int = 15, max_fram
                 "image_prev": f"frames/{stem}_{idx:06d}_prev.jpg" if prev is not None else None,
                 "prev_frame_s": PREV_FRAME_S if prev is not None else None,
                 "lead": lead_meta(res.context),
-
                 "ego_speed_kmh": ego.speed_kmh,
                 "cruise_speed_kmh": cfg.control.cruise_speed_kmh,
                 "context": res.context.summary_text(),

@@ -27,9 +27,7 @@ def lead_meta(ctx: SceneContext) -> dict | None:
     return {"cls": lead.cls_name, "distance_m": r(lead.distance_m), "closing_speed_mps": r(lead.closing_speed_mps),
             "ttc_s": r(lead.ttc_s), "cutting_in": lead.cutting_in}
 
-
 def split_for(group: str, val_percent: int = 20) -> str:
-
     """Deterministic train/val split by video group, so frames of one video never straddle splits."""
     bucket = int(hashlib.md5(group.encode()).hexdigest(), 16) % 100
     return "val" if bucket < val_percent else "train"
@@ -123,7 +121,6 @@ class RecordWriter:
             cv2.imwrite(str(self.frames_dir / prev_name), prev_frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
             head.update(image_prev=f"frames/{prev_name}", prev_frame_s=PREV_FRAME_S)
         self._f.write(json.dumps({**head, **record}, ensure_ascii=False) + "\n")
-
         self._f.flush()
         self.existing.add(sample_id)
         self.count += 1

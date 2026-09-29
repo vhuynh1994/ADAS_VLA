@@ -44,7 +44,6 @@ class HUD:
             x1, y1, x2, y2 = (int(v) for v in d.box)
             critical = d.threatening and d.ttc_s is not None and d.ttc_s < 2.7
             color = (0, 0, 255) if critical else (0, 165, 255) if d.threatening else (80, 200, 80)
-
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
             label = d.cls_name if not d.attribute else f"{d.cls_name}:{d.attribute}"
             if d.distance_m is not None:
@@ -55,7 +54,6 @@ class HUD:
                 label += " oncoming"
             if d.cutting_in:
                 label += " cut-in"
-
             texts.append(((x1, max(0, y1 - 18)), label, 14, color))
 
         # Status panel (top-left).

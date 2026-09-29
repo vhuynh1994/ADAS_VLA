@@ -47,7 +47,6 @@ class PerceptionConfig:
     cut_in_max_distance_m: float = 30.0
 
 
-
 @dataclass
 class VLMConfig:
     enabled: bool = True
@@ -73,7 +72,6 @@ class VLMConfig:
     # at least that much braking reaches the threshold (trades some false slowdowns for fewer missed ones)
     # | cautious_gated: cautious only when perception corroborates a hazard (types.context_has_hazard_cue)
     action_policy: str = "greedy"
-
     cautious_tau_decel: float = 0.35
     cautious_tau_brake: float = 0.30
     temperature: float = 0.0  # 0 = greedy decoding
@@ -111,7 +109,6 @@ class SafetyConfig:
     aeb_hold_s: float = 0.5
     fcw_hold_s: float = 1.0
     hysteresis: float = 1.3
-
 
 
 @dataclass

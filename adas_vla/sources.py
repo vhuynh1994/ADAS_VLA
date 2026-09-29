@@ -45,7 +45,6 @@ class FrameHistory:
         self._frames.clear()
 
 
-
 def iter_frames(source: str, max_frames: int | None = None, image_fps: float = 10.0
                 ) -> Iterator[tuple[int, float, np.ndarray]]:
     """Yield (frame_idx, timestamp_s, frame_bgr).

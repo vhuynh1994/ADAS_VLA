@@ -26,7 +26,6 @@ def event_prompt(event: dict) -> str:
     lines = [
         f"Time: {event['t']:.1f} s (frame {event['frame']})",
         f"Alerts: {alerts}",
-
         f"System action: {d['longitudinal']} / {d['lateral']} (decided by {d['source']}), "
         f"target speed {d['target_speed_kmh']:.0f} km/h",
     ]

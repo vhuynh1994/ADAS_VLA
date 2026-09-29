@@ -17,7 +17,6 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
 - Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (61 tests, must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
-
 ## Current status (2026-09-28)
 - 3 fine-tune rounds done; default VLM `models/adas-vlm-v3` (warm start from v2, 12,461 training samples:
   comma2k19 CAN labels + Australian near-crash clips + Nexar crashes).
@@ -61,19 +60,16 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
    First check on the GPU that `encode_messages` works with `videos=[[PIL, PIL]]` on the installed transformers
    (processor default fps 2 → `second_per_grid_ts` 1.0) and that DataLoader workers fork cleanly with the processor.
 4. Compare v4 vs v3 with the intervals in the HTML report, under-braking (VLM alone and after the gate) first.
-
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.
 3. Expert-reviewed val labels (current val labels were reviewed by an AI, see `docs/DATASET.md`).
 4. Trajectory action head on the LM hidden state; C++ port of safety gate + controller (golden vectors ready).
 
-
 ## Rules
 - Keep the val split fixed when comparing models (`data/ds_v2/labels.splits.json`); report under-braking first.
 - The safety gate must only ever brake *more* than the VLM suggests; keep `tests/test_safety_control.py` and
   `tests/test_safety_golden.py` passing (regenerate the golden file only for an intended change, review the diff).
-
 - The repo is **public**: never commit tokens, credentials, datasets, model weights, or content from confidential
   vendor documents. `docs/DEPLOY_SA8797P.md` must stay based on public sources only.
 - Dataset licenses: Qwen2.5-VL-3B (Qwen Research), Australian clips (CC-BY-NC-4.0), Nexar (attribution, no

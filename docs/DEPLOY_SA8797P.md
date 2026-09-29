@@ -40,7 +40,6 @@ PyTorch / HF model
 | Tracker (ByteTrack) | CPU | ★ Dễ | Port C++ |
 | Geometry / TTC `perception/geometry.py` | CPU | ★ Dễ | Port C++; nên thay khoảng cách mono bằng depth/radar fusion |
 | Safety gate `control/safety.py` | CPU / safety island | ★ Dễ (logic), cần đạt ASIL | Viết lại C++ deterministic; bản C++ phải tái tạo đúng `tests/data/safety_golden.json` (203 kịch bản, gồm hold/hysteresis của AEB/FCW; định dạng mô tả trong `control/golden.py`) |
-
 | Controller `control/controller.py` | CPU / MCU | ★ Dễ | Thay P-controller bằng PID/MPC đã hiệu chỉnh |
 | VLM `reasoning/vlm.py` | HTP (+ CPU ghép embedding) | ★★★ Khó | Tách vision encoder và LM, lượng tử hóa W4A16, KV cache, cố định 560×308 |
 | LLM `reasoning/llm.py` | HTP (Genie) | ★★ Trung bình | Theo tutorial LLM-on-Genie của AI Hub |
@@ -68,7 +67,6 @@ Hướng mở rộng: thêm action head nhỏ (MLP) xuất quỹ đạo từ hid
 - [ ] Chốt độ phân giải ảnh cố định (`vlm.image_size`, bội số 28 cho Qwen2.5-VL) và fine-tune/đánh giá đúng độ phân giải đó
 - [ ] Nếu dùng input 2 frame (`vlm.prev_frame_s: 0.5`): input ViT thành `[2, 3, 308, 560]` (vẫn shape tĩnh, 220 token);
       pipeline giữ buffer frame 0,5 s (`sources.FrameHistory`)
-
 - [ ] Merge LoRA vào weights (`adas-vla merge`) trước khi lượng tử hóa
 - [ ] Rút gọn system prompt, cân nhắc cache prefix cố định
 - [ ] Output ngắn: action trước, dừng sớm (`vlm.generate_reason: false`) — đã đo p50 0.9 s trên RTX 4060

@@ -17,7 +17,6 @@ from .perception.lanes import build_lane_detector
 from .sources import FrameHistory
 from .types import VRU_CLASSES, DrivingDecision, EgoState, FrameResult, LaneInfo, SceneContext
 
-
 log = logging.getLogger(__name__)
 
 
@@ -40,7 +39,6 @@ class _AsyncVLMWorker:
             pass
         self._inbox.put_nowait((tuple(None if f is None else f.copy() for f in frames), ctx))
 
-
     def latest(self) -> DrivingDecision | None:
         with self._lock:
             return self._result
@@ -52,7 +50,6 @@ class _AsyncVLMWorker:
             except queue.Empty:
                 continue
             decision = self._run_fn(frames, ctx)
-
             if decision is not None:
                 with self._lock:
                     self._result = decision
@@ -76,7 +73,6 @@ class ADASPipeline:
         self.safety = SafetySupervisor(cfg)
         self.controller = Controller(cfg.control)
         self._history = FrameHistory(cfg.vlm.prev_frame_s)  # earlier frame for the 2-frame VLM input
-
 
         self.vlm = vlm
         if self.vlm is None and load_vlm and cfg.vlm.enabled:
@@ -112,7 +108,6 @@ class ADASPipeline:
         cut_in = any(d.cutting_in for d in ctx.detections)
         return (lead.track_id if lead else None, gap, vru, red, cut_in, ctx.lanes.valid)
 
-
     def should_call_vlm(self, ctx: SceneContext) -> bool:
         v = self.cfg.vlm
         signature = self.scene_signature(ctx)
@@ -131,7 +126,6 @@ class ADASPipeline:
             frame, ctx.summary_text(), ctx.ego.speed_kmh, self.cfg.control.cruise_speed_kmh,
             self.cfg.safety.max_speed_kmh, prev_image=prev,
         )
-
         self.vlm_calls += 1
         self.vlm_latencies.append(latency)
         self.last_raw = raw
@@ -158,7 +152,6 @@ class ADASPipeline:
                 decision = self._run_vlm(frames, ctx)
                 if decision is not None:
                     self.latest_vlm = decision
-
         if self._worker is not None:
             self.latest_vlm = self._worker.latest() or self.latest_vlm
 
@@ -175,7 +168,6 @@ class ADASPipeline:
         if self.lane_detector:
             self.lane_detector.reset()
         self.latest_vlm = None
-
         self._last_vlm_frame = None
         self._last_signature = None
 

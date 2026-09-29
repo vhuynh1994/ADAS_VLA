@@ -22,7 +22,6 @@ ACCEPTANCE = [  # (metric, label, target, higher_is_better)
 ]
 
 
-
 def _load(path: str) -> list[dict]:
     with open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
@@ -35,7 +34,6 @@ def summarize(rows: list[dict]) -> dict:
     n = len(rows)
     valid = [r for r in rows if r["pred"]]
     replayed = [r for r in rows if r.get("final")]  # eval reports written with stored `lead` perception
-
     def ok(r, k):
         return r["pred"] and r["pred"][k] == r["gt"][k]
 
@@ -71,7 +69,6 @@ def _rate_cell(metrics: dict, key: str, css: str = "") -> str:
     ci = metrics.get(key + "_ci95")
     span = f" <span class='muted'>({ci[0]:.1%}–{ci[1]:.1%})</span>" if ci else ""
     return f"<td class='{css}'>{v:.1%}{span}</td>"
-
 
 
 def _thumb(path: Path, width: int = 360) -> str:
@@ -133,7 +130,6 @@ def build_report(runs: dict[str, str], data_dir: str, out: str, title: str, note
             (f"<td>{metrics[n][key]}</td>" if key.endswith("samples") else _rate_cell(metrics[n], key))
             for n in names)
         rows_html += f"<tr><th>{label}</th><td></td>{cells}</tr>"
-
     # Per-source breakdown (joint accuracy / under-braking), from the dataset's labels.jsonl.
     source_of = {}
     labels_path = Path(data_dir) / "labels.jsonl"
@@ -208,7 +204,6 @@ figure img {{ width:100%; display:block; }} figcaption {{ padding:8px 10px; font
 </style></head><body><main>
 <h1>{html.escape(title)}</h1><p class="muted">Evaluated on the held-out val split (whole videos never seen in training).
 Rates show their 95% Wilson interval; two runs whose intervals overlap widely are not distinguishable on this val set.</p>
-
 <div class="card"><table><tr><th>Metric</th><th>Target</th>{head_cells}</tr>{rows_html}</table></div>
 {f"<h2>Notes</h2><div class='card notes'>{html.escape(notes)}</div>" if notes else ""}
 <h2>Confusion matrices</h2><div class="cms">{cms}</div>

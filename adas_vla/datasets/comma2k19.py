@@ -20,7 +20,6 @@ from ..sources import FrameHistory
 from ..types import EgoState, LatAction, LongAction
 from .common import PREV_FRAME_S, RecordWriter, lead_meta, risk_for, split_for, template_reason
 
-
 FPS = 20.0
 HFOV_DEG = 65.0  # comma EON road camera: 1164 px wide, focal length ~910 px
 
@@ -169,7 +168,6 @@ def build(cfg: Config, zip_path: Path, out_dir: Path, max_segments: int = 60, ev
 
             events = detect_lane_changes(offsets)
             for i, (frame, prev, ctx, t_abs) in samples.items():
-
                 long_a, target_kmh, accel = longitudinal_label(speed_at, t_abs)
                 lat_a = lateral_label(i, events)
                 flags = []
@@ -188,7 +186,6 @@ def build(cfg: Config, zip_path: Path, out_dir: Path, max_segments: int = 60, ev
                     "label_source": "can", "reviewed": False, "flags": flags, "lead": lead_meta(ctx),
                     "meta": {"accel_mps2": round(accel, 2), "camera_hfov_deg": HFOV_DEG},
                 }, prev_frame=prev)
-
             print(f"  [{k + 1}/{len(segments)}] {seg_id}: {len(samples)} samples, "
                   f"{len(events)} lane changes, split={split}", flush=True)
     writer.close()

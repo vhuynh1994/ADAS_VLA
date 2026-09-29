@@ -11,7 +11,6 @@ on the samples they are measured on.
                                                 # context shows a hazard (same rule the pipeline applies online)
 """
 
-
 from __future__ import annotations
 
 import argparse
@@ -39,7 +38,6 @@ def metrics(rows: list[dict], tau_d: float, tau_b: float) -> dict:
             continue
         g = r["gt"]["longitudinal"]
         p = choose_action(r["probs"], POLICY, tau_d, tau_b, CUE.get(r["image"], True))
-
         n += 1
         ok += p == g and r["pred"]["lateral"] == r["gt"]["lateral"]
         under += RANK[g] >= RANK["DECELERATE"] and RANK[p] < RANK[g]
@@ -80,7 +78,6 @@ def main() -> None:
         cued = sum(CUE.get(r["image"], True) for r in rows)
         print(f"policy cautious_gated: perception shows a hazard in {cued}/{len(rows)} samples "
               f"({cued / max(1, len(rows)):.0%}); the others always keep the greedy action")
-
     fold = lambda r: int(hashlib.md5(group.get(r["image"], "?").encode()).hexdigest(), 16) % 2
     folds = [[r for r in rows if fold(r) == k] for k in (0, 1)]
 

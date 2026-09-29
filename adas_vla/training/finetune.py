@@ -20,7 +20,6 @@ from ..reasoning.vlm import encode_messages, load_model_and_processor
 from ..types import LongAction
 from .data import load_records, sample_visual, target_json
 
-
 # Attention + MLP projections of the language model only (anything under `visual` is excluded).
 LORA_TARGET_REGEX = r"^(?!.*visual).*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"
 
@@ -41,7 +40,6 @@ class TrainArgs:
     val_limit: int = 150  # val-loss subset size (full evaluation is `adas-vla eval`)
     workers: int = 2  # DataLoader workers: decode images and tokenize while the GPU trains (0 = main thread)
     brake_weight: float = 1.0  # loss multiplier for samples labelled DECELERATE / BRAKE / STOP (targets under-braking)
-
 
 
 def label_key(rec: dict) -> tuple[str, str]:
@@ -81,7 +79,6 @@ def sample_weight(rec: dict, brake_weight: float) -> float:
         braking = False
     return brake_weight if braking else 1.0
 
-
 def build_example(processor, rec: dict, cfg: Config) -> dict:
     """Tokenize one sample; loss is computed on the assistant answer only."""
     prompt = decision_messages(sample_visual(rec, cfg), rec["context"], rec["ego_speed_kmh"],
@@ -89,7 +86,6 @@ def build_example(processor, rec: dict, cfg: Config) -> dict:
     full = prompt + [{"role": "assistant", "content": [{"type": "text", "text": target_json(rec["target"])}]}]
     enc_full = encode_messages(processor, full, add_generation_prompt=False)
     enc_prompt = encode_messages(processor, prompt, add_generation_prompt=True)
-
     n_prompt = enc_prompt["input_ids"].shape[1]
     if not bool((enc_full["input_ids"][0, :n_prompt] == enc_prompt["input_ids"][0]).all()):
         raise RuntimeError("Chat template prefix mismatch: cannot mask the prompt reliably")
@@ -128,7 +124,6 @@ def _loader(processor, records: list[dict], order: list[int], cfg: Config, worke
                       num_workers=workers, collate_fn=_identity, prefetch_factor=4 if workers else None)
 
 
-
 def train(cfg: Config, args: TrainArgs) -> None:
     import torch
     from peft import LoraConfig, get_peft_model
@@ -138,7 +133,6 @@ def train(cfg: Config, args: TrainArgs) -> None:
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     all_records = load_records(args.data)
-
     records = [r for r in all_records if r.get("split", "train") == "train"]
     val_records = load_records(args.val_data) if args.val_data else \
         [r for r in all_records if r.get("split") == "val"]
@@ -153,7 +147,6 @@ def train(cfg: Config, args: TrainArgs) -> None:
     print(f"Balanced epoch size: {epoch_size} (max class share {args.max_class_share:.0%}), "
           f"brake weight {args.brake_weight:g}, {args.workers} loader workers, "
           f"{'2-frame' if cfg.vlm.prev_frame_s > 0 else 'single-frame'} input")
-
 
     model, processor = load_model_and_processor(cfg.vlm, for_training=True)
     # QLoRA without peft's fp32 upcast of all non-quantized weights: bf16 is stable for LoRA here and
@@ -191,7 +184,6 @@ def train(cfg: Config, args: TrainArgs) -> None:
         for i, (rec_idx, example) in enumerate(zip(order, _loader(processor, records, order, cfg, args.workers))):
             batch = _to_device(example, device)
             loss = model(**batch).loss * sample_weight(records[rec_idx], args.brake_weight) / args.grad_accum
-
             loss.backward()
             running += loss.item()
             if (i + 1) % args.grad_accum == 0 or i == len(order) - 1:

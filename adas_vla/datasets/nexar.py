@@ -23,7 +23,6 @@ from ..sources import FrameHistory
 from ..types import EgoState, LatAction, LongAction
 from .common import PREV_FRAME_S, RecordWriter, lead_meta, risk_for, template_reason
 
-
 SCENE_SPEED_KMH = {"Highway": 90.0}  # everything else: urban / suburban speeds
 DEFAULT_SPEED_KMH = 45.0
 KEEP_OFFSETS_S = (-7.0, -4.0)
@@ -82,7 +81,6 @@ def build(cfg: Config, root: Path, out_dir: Path, test_percent: int = 13, fps_st
                 break
             history.push(idx / fps, frame)
             if idx not in wanted and (idx - start) % fps_stride:
-
                 continue
             ctx = pipe.perceive(frame, idx, idx / fps, ego)
             if idx not in wanted:
@@ -102,7 +100,6 @@ def build(cfg: Config, root: Path, out_dir: Path, test_percent: int = 13, fps_st
                 "meta": {"time_of_alert": alert, "time_of_event": event, "t": round(idx / fps, 2),
                          "scene": row["scene"], "light": row["light_conditions"], "weather": row["weather"]},
             }, prev_frame=history.before(idx / fps))
-
             n += 1
         cap.release()
         if (k + 1) % 25 == 0:

@@ -16,7 +16,6 @@ from ..types import EgoState
 from .common import PREV_FRAME_S, RecordWriter, lead_meta, split_for, template_reason
 
 
-
 @dataclass
 class ClipSource:
     name: str
@@ -90,7 +89,6 @@ def build(cfg: Config, source: ClipSource, out_dir: Path, val_percent: int = 20,
             history.push(t, frame)
             if idx % step and idx % stride:
                 continue
-
             res = pipe.process(frame, idx, t, ego)
             if idx % step:
                 continue
@@ -111,7 +109,6 @@ def build(cfg: Config, source: ClipSource, out_dir: Path, val_percent: int = 20,
                 "flags": [] if fresh or not cfg.vlm.enabled else ["teacher output unusable"],
                 "lead": lead_meta(res.context),
             }, prev_frame=history.before(t))
-
             n += 1
         print(f"  [{k + 1}/{len(source.videos)}] {vid}: {n} samples, split={split}", flush=True)
     writer.close()

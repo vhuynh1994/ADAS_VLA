@@ -128,7 +128,6 @@ adas_vla/
   perception/         detector.py (YOLO11s+ByteTrack, màu đèn), geometry.py (distance/TTC/oncoming), lanes.py (YOLOP CNN hoặc classic)
   reasoning/          prompts.py, parser.py (JSON chịu lỗi), vlm.py (transformers, 4-bit, LoRA)
   control/            safety.py (safety gate, AEB/FCW hysteresis), controller.py, golden.py (đọc/replay golden vectors)
-
   pipeline.py         dual-rate pipeline, VLM sync/async
   hud.py  sources.py  cli.py
   training/           autolabel.py, finetune.py (QLoRA + cân bằng lớp), evaluate.py, data.py
@@ -141,7 +140,6 @@ scripts/              download_samples.sh · download_models.sh · fetch_hf.py �
 tests/data/safety_golden.json   kịch bản → quyết định mong đợi của safety gate (test tương đương cho bản C++)
 .github/workflows/ci.yml        pytest trên Python 3.10 + 3.12, không cần GPU
 docs/DEPLOY_SA8797P.md
-
 ```
 
 ## Kết quả đã kiểm chứng trên PC này (RTX 4060 Laptop 8 GB, 27/09/2026)
@@ -149,7 +147,6 @@ docs/DEPLOY_SA8797P.md
 | Thành phần | Kết quả |
 |---|---|
 | Unit test | 44/44 pass (`pytest -q`); 61/61 sau phiên 29/09 (chạy trên cloud, Python 3.11, không GPU) |
-
 | Perception + safety + HUD (YOLO11n, ByteTrack, lane) | ~12 ms/frame; 22 FPS kể cả ghi video |
 | VLM Qwen2.5-VL-3B 4-bit, 560×308 | JSON hợp lệ 15/15, latency p50 2.1 s, **VRAM đỉnh 2.7 GB** (gồm cả YOLO) |
 | Chế độ async | vòng perception giữ ~30 FPS trong khi VLM chạy nền |
@@ -206,9 +203,7 @@ làn trống). Vì vậy bước **label → review → LoRA** là bắt buộc 
   thống) khi dataset có trường `lead` (builder mới ghi; ds_v2 cũ phải build lại mới có).
 - **CI:** `.github/workflows/ci.yml` chạy pytest với Python 3.10 và 3.12 (không cần torch), kiểm tra cú pháp mọi module
   và golden vectors. Sửa lỗi f-string lồng nhau trong `reasoning/llm.py` chỉ chạy được trên Python ≥ 3.12.
-
 ## Giới hạn và lưu ý
-
 
 - **Không dùng để điều khiển xe thật.** Đây là prototype R&D.
 - Khoảng cách được ước lượng từ 1 camera (chiều cao bbox + FOV), nên nhiễu. Cần chỉnh `camera.hfov_deg` theo camera thật.

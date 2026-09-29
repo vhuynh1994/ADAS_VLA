@@ -188,7 +188,6 @@ def cmd_train(args) -> None:
                          workers=args.workers, brake_weight=args.brake_weight))
 
 
-
 def cmd_eval(args) -> None:
     from .training.evaluate import evaluate
 
@@ -385,7 +384,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--brake-weight", type=float, default=1.0,
                    help="loss weight of DECELERATE/BRAKE/STOP samples (e.g. 2.0 to fight under-braking)")
     p.set_defaults(func=cmd_train)
-
 
     p = sub.add_parser("eval", help="evaluate action accuracy / JSON validity / latency on a dataset")
     _add_common(p)

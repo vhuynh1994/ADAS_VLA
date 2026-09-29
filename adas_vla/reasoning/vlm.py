@@ -12,7 +12,6 @@ from PIL import Image
 from ..config import VLMConfig, resolve_model
 from ..types import DrivingDecision, context_has_hazard_cue
 from .parser import parse_decision
-
 from .prompts import DECISION_PREFIX, chat_messages, decision_messages
 
 
@@ -74,7 +73,6 @@ def choose_action(probs: dict[str, float], policy: str, tau_decel: float, tau_br
     greedy = max(probs, key=probs.get)
     if policy not in ("cautious", "cautious_gated") or (policy == "cautious_gated" and not cue):
         return greedy
-
     rank = LONG_ORDER.index
     p_ge = lambda a: sum(p for b, p in probs.items() if rank(b) >= rank(a))
     for target, tau in (("BRAKE", tau_brake), ("DECELERATE", tau_decel)):
@@ -89,7 +87,6 @@ class ActionPolicy:
 
     def __init__(self, tokenizer, prompt_len: int, cfg: VLMConfig, cue: bool = True):
         self.prompt_len, self.cfg, self.cue = prompt_len, cfg, cue
-
         self.first_token = {a: tokenizer(a, add_special_tokens=False).input_ids[0] for a in LONG_ORDER}
         self.probs: dict[str, float] | None = None
         self.choice: str | None = None
@@ -105,7 +102,6 @@ class ActionPolicy:
         self.probs = {a: v / total for a, v in raw.items()}
         self.choice = choose_action(self.probs, self.cfg.action_policy, self.cfg.cautious_tau_decel,
                                     self.cfg.cautious_tau_brake, self.cue)
-
         forced = torch.full_like(scores, float("-inf"))
         forced[:, self.first_token[self.choice]] = 0.0
         return forced
@@ -171,9 +167,7 @@ def encode_messages(processor, messages: list[dict], add_generation_prompt: bool
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=add_generation_prompt)
     return processor(text=[text], images=images or None, videos=videos, return_tensors="pt")
 
-
 def load_model_and_processor(cfg: VLMConfig, for_training: bool = False):
-
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     kwargs = model_load_kwargs(cfg.quantization, cfg.dtype, cfg.device_map, cfg.quantize_vision)
@@ -203,7 +197,6 @@ class VisionLanguageModel:
 
         inputs = encode_messages(self.processor, messages, add_generation_prompt=True)
         if prefix:
-
             inputs = append_tokens(inputs, self.processor.tokenizer(
                 prefix, add_special_tokens=False, return_tensors="pt")["input_ids"])
         # BatchFeature.to() casts only floating tensors (pixel_values), not input_ids.
@@ -243,7 +236,6 @@ class VisionLanguageModel:
             visual = now
         messages = decision_messages(visual, context_text, ego_speed_kmh, cruise_speed_kmh, self.cfg.language)
         policy = ActionPolicy(self.processor.tokenizer, 0, self.cfg, cue=context_has_hazard_cue(context_text))
-
         t0 = time.perf_counter()
         if self.cfg.generate_reason:
             raw = self.generate(messages, prefix=DECISION_PREFIX, logits_processor=policy)

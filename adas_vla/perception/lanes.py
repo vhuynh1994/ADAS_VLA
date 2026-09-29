@@ -137,7 +137,6 @@ class YolopLaneDetector(LaneDetector):
         so it is off by default to save an argmax + resize per frame)."""
         super().__init__(**kwargs)
         self.keep_drivable = keep_drivable
-
         import onnx
         import torch
         from onnx2torch import convert
@@ -170,7 +169,6 @@ class YolopLaneDetector(LaneDetector):
         if self.keep_drivable:
             drive = drive[0].argmax(0)[top:top + nh, left:left + nw].to(torch.uint8).cpu().numpy()
             self.drivable = cv2.resize(drive, (w, h), interpolation=cv2.INTER_NEAREST)
-
         mask = cv2.resize(lane * 255, (w, h), interpolation=cv2.INTER_NEAREST)
 
         top_y = int(self.roi_top * h)
