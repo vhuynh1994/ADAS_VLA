@@ -8,7 +8,18 @@ D=data/ds_v3/labels.jsonl
 F='UserWarning|warn\(|x\[seq\]|pos_axes_slices|Loading weights|it/s\]|cap_pixels_per_frame|^\s*$'
 TWO="--set vlm.prev_frame_s=0.5"
 DEMO_CLIP="data/raw/qutegocentric--Australian_Roads_Dashcam_Driving/Crash/20260113_Zyo1DICmicY_004.mp4"
+# The GPU may be shared with other jobs: start each GPU stage only once enough memory is free (training needs
+# ~6.5 GB on the 8 GB card; starting next to another job would run one of them out of memory).
+wait_gpu() {
+  local need=$1 free
+  while true; do
+    free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | head -1)
+    [[ ${free:-0} -ge $need ]] && return
+    echo "   [$(date +%T)] waiting for GPU memory: ${free} MiB free, need ${need} MiB"; sleep 300
+  done
+}
 until grep -q "data stage done" outputs/v4_data.log 2>/dev/null; do sleep 30; done
+wait_gpu 7000
 echo "== [$(date +%T)] fine-tune v4 (2-frame input, base models/adas-vlm-v3)"
 $A train --data $D --output checkpoints/lora-v4 --epochs 1 --grad-accum 8 --lr 1e-4 --max-class-share 0.55 \
   --workers 2 --brake-weight 2.0 $TWO 2>&1 | grep --line-buffered -vE "$F"
@@ -16,6 +27,7 @@ echo "== [$(date +%T)] merge v4"
 $A merge --adapter checkpoints/lora-v4 --out models/adas-vlm-v4 2>&1 | grep --line-buffered -vE "$F"
 for m in v4 v3; do
   extra=""; [[ $m == v4 ]] && extra=$TWO
+  wait_gpu 5000
   echo "== [$(date +%T)] eval $m (val)"
   $A eval --data $D --split val --set vlm.model_id=models/adas-vlm-$m $extra --report outputs/eval_${m}_ds3.jsonl \
     2>&1 | grep --line-buffered -vE "$F"
@@ -26,6 +38,7 @@ done
 echo "== [$(date +%T)] cautious policy sweep (v4)"
 .venv/bin/python scripts/sweep_policy.py outputs/eval_v4_ds3.jsonl --data $D --nexar outputs/eval_nexar_v4_ds3.jsonl \
   2>&1 | grep --line-buffered -vE "$F"
+wait_gpu 5000
 echo "== [$(date +%T)] demo v4"
 $A demo --source "$DEMO_CLIP" --output outputs/demo_crash_v4.mp4 --ego-speed 45 --set vlm.model_id=models/adas-vlm-v4 \
   $TWO --set vlm.generate_reason=true --set llm.language=vi 2>&1 | grep --line-buffered -vE "$F"
