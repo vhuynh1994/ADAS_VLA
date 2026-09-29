@@ -273,7 +273,8 @@ def cmd_build_dataset(args) -> None:
 
         n = comma2k19.build(cfg, Path(args.zip), out, max_segments=args.segments, every_s=args.every_s or 2.0,
                             perception_stride=args.stride, val_percent=args.val_percent,
-                            skip_from=[Path(p) for p in args.skip_from])
+                            skip_from=[Path(p) for p in args.skip_from],
+                            only_from=Path(args.only_from) if args.only_from else None)
     else:
         from .datasets import clips
 
@@ -419,6 +420,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--segments", type=int, default=60, help="comma2k19: number of 1-minute segments")
     p.add_argument("--skip-from", action="append", default=[], metavar="LABELS.jsonl",
                    help="comma2k19: skip segments already in these datasets and their val routes (extra data = train)")
+    p.add_argument("--only-from", metavar="LABELS.jsonl",
+                   help="comma2k19: rebuild exactly the segments (and route splits) of this dataset")
     p.add_argument("--stride", type=int, default=4, help="run perception every N frames (sample frames are always processed)")
     p.add_argument("--root", help="clip folder (defaults per preset)")
     p.add_argument("--every-s", type=float, help="seconds between samples")

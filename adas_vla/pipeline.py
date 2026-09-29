@@ -69,7 +69,9 @@ class ADASPipeline:
             cfg.perception.lane_model, cfg.perception.lane_weights, cfg.perception.device,
         ) if cfg.perception.lane_detection else None
         self.motion = MotionEstimator(cfg.camera, cut_in_rate=cfg.perception.cut_in_rate,
-                                      cut_in_max_distance_m=cfg.perception.cut_in_max_distance_m)
+                                      cut_in_max_distance_m=cfg.perception.cut_in_max_distance_m,
+                                      cut_in_max_pull_away_mps=cfg.perception.cut_in_max_pull_away_mps,
+                                      vel_window_s=cfg.perception.velocity_window_s)
         self.safety = SafetySupervisor(cfg)
         self.controller = Controller(cfg.control)
         self._history = FrameHistory(cfg.vlm.prev_frame_s)  # earlier frame for the 2-frame VLM input

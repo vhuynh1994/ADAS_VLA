@@ -39,7 +39,7 @@ PyTorch / HF model
 | Lane `perception/lanes.py` (YOLOP) | HTP | ★ Dễ | ONNX có sẵn (MIT); chỉ giữ 2 head segmentation |
 | Tracker (ByteTrack) | CPU | ★ Dễ | Port C++ |
 | Geometry / TTC `perception/geometry.py` | CPU | ★ Dễ | Port C++; nên thay khoảng cách mono bằng depth/radar fusion |
-| Safety gate `control/safety.py` | CPU / safety island | ★ Dễ (logic), cần đạt ASIL | Viết lại C++ deterministic; bản C++ phải tái tạo đúng `tests/data/safety_golden.json` (203 kịch bản, gồm hold/hysteresis của AEB/FCW; định dạng mô tả trong `control/golden.py`) |
+| Safety gate `control/safety.py` | CPU / safety island | ★ Dễ (logic), cần đạt ASIL | Viết lại C++ deterministic; bản C++ phải tái tạo đúng `tests/data/safety_golden.json` (204 kịch bản, gồm xác nhận/hold/hysteresis của AEB/FCW; định dạng mô tả trong `control/golden.py`) |
 | Controller `control/controller.py` | CPU / MCU | ★ Dễ | Thay P-controller bằng PID/MPC đã hiệu chỉnh |
 | VLM `reasoning/vlm.py` | HTP (+ CPU ghép embedding) | ★★★ Khó | Tách vision encoder và LM, lượng tử hóa W4A16, KV cache, cố định 560×308 |
 | LLM `reasoning/llm.py` | HTP (Genie) | ★★ Trung bình | Theo tutorial LLM-on-Genie của AI Hub |

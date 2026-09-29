@@ -20,6 +20,8 @@ perception:
   lane_weights: models/yolop/yolop-640-640.onnx
   cut_in_rate: 0.25          # adjacent vehicle closing the gap to our corridor faster than this (corridor widths/s)
   cut_in_max_distance_m: 30.0  # ... and nearer than this is reported as CUTTING IN (and treated as the lead)
+  cut_in_max_pull_away_mps: 1.0  # ... unless it is pulling away from us faster than this (overtaking, not a threat)
+  velocity_window_s: 0.5      # closing speed = distance slope over this window (TTC noise vs lag)
 
 vlm:
   enabled: true
@@ -67,6 +69,7 @@ safety:
   aeb_hold_s: 0.5            # AEB / FCW stay active this long after their last trigger (no single-frame flapping)
   fcw_hold_s: 1.0
   hysteresis: 1.3            # ... and release only once TTC / distance / headway exceed the trigger x 1.3
+  aeb_confirm_s: 0.2         # AEB acts once triggered this long: filters one-off monocular phantoms (FCW acts at once)
 
 control:
   cruise_speed_kmh: 60.0

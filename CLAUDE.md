@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (61 tests, must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (64 tests, must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -27,7 +27,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
 - Main error sources: single-frame input (can't see a lead slowing down / an imminent cut-in), missed detections
   of very close vehicles, ambiguous near-crash labels, lane changes too rare (never predicted).
 
-## Changes 2026-09-29 (cloud session: code + tests only, NOT yet run on the GPU)
+## Changes 2026-09-29 (cloud session: code + tests; validated on the GPU afterwards, see below)
 - `reasoning/llm.py`: nested same-quote f-string needed Python 3.12 (pyproject says 3.10+); fixed. CI added
   (`.github/workflows/ci.yml`: pytest 3.10/3.12, compileall, golden-vector check).
 - Perception (`perception/geometry.py`): boxes touching the bottom edge use box width + ground plane
@@ -47,19 +47,31 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
 - Eval/report: Wilson 95% intervals; `system_under_braking_rate` = under-braking after the safety gate replayed on
   the stored `lead` (`evaluate.gate_offline`), report rows get `final`.
 
-### To validate on the owner's PC (in this order)
-1. `pytest -q` (61) and `adas-vla run --no-vlm` on a sample video: cut-in labels and AEB hold must not cause false
-   braking; tune `cut_in_rate` / `aeb_hold_s` if they do. Re-run the crash demo (`scripts/pipeline_v3.sh` demo lines).
-2. `python scripts/sweep_policy.py outputs/eval_v3.jsonl --data data/ds_v2/labels.jsonl --gate --nexar
-   outputs/eval_nexar_v3.jsonl` (no GPU): if held-out under-braking drops without ~40% over-braking, set
-   `vlm.action_policy: cautious_gated` with the selected thresholds.
-3. 2-frame model: rebuild the datasets into `data/ds_v3` (builders now write `image_prev` + `lead`; keep the val
-   routes: `--skip-from data/ds_v2/labels.jsonl` for comma2k19, same `labels.splits.json`), then
-   `adas-vla train --data data/ds_v3/labels.jsonl --output checkpoints/lora-v4 --set vlm.prev_frame_s=0.5
-   --workers 2 --brake-weight 2.0` (base = `models/adas-vlm-v3`), `merge`, `eval --set vlm.prev_frame_s=0.5`.
-   First check on the GPU that `encode_messages` works with `videos=[[PIL, PIL]]` on the installed transformers
-   (processor default fps 2 → `second_per_grid_ts` 1.0) and that DataLoader workers fork cleanly with the processor.
-4. Compare v4 vs v3 with the intervals in the HTML report, under-braking (VLM alone and after the gate) first.
+### Validation on the owner's PC (2026-09-29)
+- AEB hold + hysteresis stretched monocular false positives into seconds of emergency braking (normal following clip:
+  AEB 33% of the time). Root causes fixed in perception (`perception/geometry.py`, `detector.py`):
+  closing speed was the difference of consecutive distances (tens of m/s of noise at 60 fps) -> least-squares slope
+  over `perception.velocity_window_s` (0.5 s), reported only when the fit is consistent; distances use the track's
+  consensus class (car<->truck flips doubled them); full-width hood/dashboard box = ego car; the clipped-box
+  ground-plane bound only applies when the box top is physically plausible (dashboard ornament was a "person at
+  4 m"); overtaking cars pulling away are not cut-ins (`perception.cut_in_max_pull_away_mps`).
+- Gate: `safety.aeb_confirm_s: 0.2` (AEB acts once its trigger held 0.2 s; FCW acts at once). Golden vectors now hold
+  each scene for 2 steps (before / after confirmation), 204 cases; `evaluate.gate_offline` treats a sample as
+  persistent (no confirmation). `aeb_min_decel_mps2` and FCW confirmation were tried and dropped (no gain).
+- `scripts/gate_replay.py capture|replay`: detector + lanes once on the GPU (`outputs/gate_replay/*.pkl`), then
+  geometry + TTC + gate replayed on the CPU per config variant. Set: 111 Nexar test videos (normal driving before
+  alert - 1.5 s, hazard alert..event, control window of equal length), 24 reviewed Australian clips, highway sample.
+  Pure normal clips: AEB 15.8% of the time / 8.6 per min (cloud code) -> 1.7% / 1.1 (now); FCW or AEB in 90% of the
+  Nexar hazard windows (control: 68%).
+- Step 2 (`sweep_policy.py --gate`, v3 val): cautious_gated only moves under-braking 8.8% -> 7.0% while over-braking
+  14.8% -> 24.2% -> rejected, greedy stays. Eval logs with `probs`: `outputs/eval_v3p_*.jsonl` (and every new eval).
+- Step 3: `data/ds_v3` = exactly the ds_v2 samples rebuilt with the current perception (`scripts/v4_data.sh`:
+  `build-dataset comma2k19 --only-from data/ds_v2/labels.jsonl`, australian, nexar; ds_v2 review/split overlays
+  copied; UK/Udacity dropped, all excluded). GPU checks passed: 2-frame input = 220 visual tokens (586 total, same as
+  one image), DataLoader workers fork fine, eval logs probs. `scripts/pipeline_v4.sh`: train v4 (base v3,
+  `--brake-weight 2.0 --workers 2`, prev_frame_s 0.5), merge, eval v4 and v3 on ds_v3 (val + Nexar), sweep, demo,
+  reports `outputs/report_v4_{val,nexar}.html`. Make v4 the default only if it wins on under-braking first.
+
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.

@@ -53,11 +53,13 @@ def scenarios() -> list[dict]:
     objects["cut_in_car_15m"] = [{"cls": "car", "distance_m": 15.0, "ttc_s": None, "closing_speed_mps": 0.0,
                                  "in_ego_path": False, "cutting_in": True}]
     objects["red_light"] = [{"cls": "traffic light", "attribute": "red", "in_ego_path": False}]
+    # Each scene is held for 0.2 s: the first step shows an AEB trigger before confirmation (FCW only), the
+    # second after `aeb_confirm_s`.
     for ego in (30.0, 60.0):
         for obj_name, dets in objects.items():
             for vlm_name, vlm in VLMS.items():
                 cases.append({"name": f"ego{ego:g}_{obj_name}_vlm-{vlm_name}",
-                              "steps": [step(10.0, ego, dets, vlm)]})
+                              "steps": [step(10.0, ego, dets, vlm), step(10.2, ego, dets, vlm)]})
     # Stale recommendation -> rule-based ACC policy.
     cases.append({"name": "stale_vlm_uses_rules", "steps": [
         {**step(10.0, 50.0, [lead(30.0, None)], VLMS["keep"]), "vlm": {**VLMS["keep"], "t": 5.0}}]})
@@ -65,10 +67,17 @@ def scenarios() -> list[dict]:
     cases.append({"name": "ldw_right", "steps": [step(10.0, 50.0, [], VLMS["keep"], {"left_x": 620, "right_x": 1020})]})
     cases.append({"name": "ldw_left", "steps": [step(10.0, 50.0, [], VLMS["keep"], {"left_x": 260, "right_x": 660})]})
     cases.append({"name": "lanes_centered", "steps": [step(10.0, 50.0, [], VLMS["keep"], {"left_x": 440, "right_x": 840})]})
-    # AEB hold + hysteresis: trigger, stay on above the trigger threshold, hold through a dropped detection, release.
+    # AEB confirmation + hold + hysteresis: trigger, confirm, stay on above the trigger threshold, hold through a
+    # dropped detection, release (FCW held a little longer).
     cases.append({"name": "aeb_hold_and_hysteresis", "steps": [
-        step(10.0, 50.0, [lead(12.0, 1.4)], VLMS["keep"]), step(10.1, 50.0, [lead(20.0, 1.8)], VLMS["keep"]),
-        step(10.3, 50.0, [], VLMS["keep"]), step(10.7, 50.0, [], VLMS["keep"]), step(11.2, 50.0, [], VLMS["keep"]),
+        step(10.0, 50.0, [lead(12.0, 1.4)], VLMS["keep"]), step(10.2, 50.0, [lead(11.5, 1.4)], VLMS["keep"]),
+        step(10.3, 50.0, [lead(20.0, 1.8)], VLMS["keep"]), step(10.5, 50.0, [], VLMS["keep"]),
+        step(10.9, 50.0, [], VLMS["keep"]), step(11.4, 50.0, [], VLMS["keep"]),
+    ]})
+    # A one-frame phantom never reaches AEB confirmation (FCW acts at once and is held).
+    cases.append({"name": "aeb_one_frame_phantom", "steps": [
+        step(10.0, 50.0, [lead(3.0, 0.5)], VLMS["keep"]), step(10.05, 50.0, [], VLMS["keep"]),
+        step(10.25, 50.0, [], VLMS["keep"]),
     ]})
     # FCW hold: short headway for one frame, then the lead pulls away.
     cases.append({"name": "fcw_hold", "steps": [

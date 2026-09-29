@@ -95,9 +95,12 @@ def _load_npy(z: zipfile.ZipFile, name: str) -> np.ndarray:
 
 
 def build(cfg: Config, zip_path: Path, out_dir: Path, max_segments: int = 60, every_s: float = 2.0,
-          perception_stride: int = 4, val_percent: int = 20, skip_from: list[Path] | None = None) -> int:
+          perception_stride: int = 4, val_percent: int = 20, skip_from: list[Path] | None = None,
+          only_from: Path | None = None) -> int:
     """skip_from: existing datasets. Their segments are not rebuilt, and routes that are in their val split are
-    skipped entirely, so new training data never leaks from a held-out route."""
+    skipped entirely, so new training data never leaks from a held-out route.
+    only_from: rebuild exactly the segments of this dataset (same sample ids, same split per route), e.g. to
+    refresh the perception context after a perception change; `max_segments` is ignored."""
     from ..pipeline import ADASPipeline
 
     cfg.camera.hfov_deg = HFOV_DEG
@@ -107,6 +110,14 @@ def build(cfg: Config, zip_path: Path, out_dir: Path, max_segments: int = 60, ev
     work = zip_path.parent / "extracted"
     work.mkdir(exist_ok=True)
     segments = pick_evenly(list_segments(zip_path), max_segments)
+    ref_split: dict[str, str] = {}
+    if only_from is not None:
+        from ..training.data import load_records
+
+        ref = [r for r in load_records(only_from, include_excluded=True) if r.get("source") == "comma2k19"]
+        wanted = {r["video"] for r in ref}
+        ref_split = {r["group"]: r["split"] for r in ref}
+        segments = [seg for seg in list_segments(zip_path) if seg in wanted]
     done_segments, val_routes = set(), set()
     for other in skip_from or []:
         from ..training.data import load_records, splits_path
@@ -144,7 +155,7 @@ def build(cfg: Config, zip_path: Path, out_dir: Path, max_segments: int = 60, ev
                 return float(np.interp(t, _t, _v))
 
             cruise = max(30.0, round(np.percentile(speed_v, 90) * 3.6 / 5) * 5)
-            split = "train" if skip_from else split_for(route, val_percent)
+            split = ref_split.get(route) or ("train" if skip_from else split_for(route, val_percent))
             pipe.reset()
             history = FrameHistory(PREV_FRAME_S)
             cap = cv2.VideoCapture(str(video))

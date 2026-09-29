@@ -33,7 +33,9 @@ def test_fresh_vlm_decision_passes_through():
 
 
 def test_aeb_overrides_vlm():
-    d, alerts = SafetySupervisor(Config()).arbitrate(ctx_with([car(12, ttc=1.0)]), vlm(LongAction.ACCELERATE, lat_a=LatAction.NUDGE_LEFT))
+    s = SafetySupervisor(Config())
+    for t in (10.0, 10.1, 10.2):  # AEB acts once its trigger held for aeb_confirm_s (0.2 s)
+        d, alerts = s.arbitrate(ctx_with([car(12, ttc=1.0)], t=t), vlm(LongAction.ACCELERATE, t=t, lat_a=LatAction.NUDGE_LEFT))
     assert d.longitudinal is LongAction.EMERGENCY_BRAKE and d.lateral is LatAction.KEEP_LANE and d.target_speed_kmh == 0 and d.source == "safety"
     assert alerts[0].kind == "AEB" and alerts[0].level == "critical"
 
@@ -115,8 +117,14 @@ def test_controller_lateral_bias():
     assert left.steer < 0 < right.steer
 
 
+def no_confirm() -> Config:
+    cfg = Config()
+    cfg.safety.aeb_confirm_s = 0.0
+    return cfg
+
+
 def test_aeb_holds_after_trigger_and_uses_hysteresis():
-    s = SafetySupervisor(Config())
+    s = SafetySupervisor(no_confirm())
     d, _ = s.arbitrate(ctx_with([car(12, ttc=1.0)], t=10.0), vlm(LongAction.KEEP, t=10.0))
     assert d.longitudinal is LongAction.EMERGENCY_BRAKE
     # TTC 1.8 s: above the 1.5 s trigger but below the release threshold (1.5 x 1.3) -> still AEB
@@ -133,7 +141,7 @@ def test_aeb_holds_after_trigger_and_uses_hysteresis():
 
 
 def test_no_hold_behaves_frame_by_frame():
-    cfg = Config()
+    cfg = no_confirm()
     cfg.safety.aeb_hold_s = cfg.safety.fcw_hold_s = 0.0
     cfg.safety.hysteresis = 1.0
     s = SafetySupervisor(cfg)
@@ -144,7 +152,7 @@ def test_no_hold_behaves_frame_by_frame():
 
 
 def test_reset_forgets_held_interventions():
-    s = SafetySupervisor(Config())
+    s = SafetySupervisor(no_confirm())
     s.arbitrate(ctx_with([car(12, ttc=1.0)], t=10.0), vlm(LongAction.KEEP, t=10.0))
     s.reset()  # new video: the timeline restarts
     d, alerts = s.arbitrate(ctx_with([], t=0.0), vlm(LongAction.KEEP, t=0.0))
@@ -157,3 +165,25 @@ def test_cutting_in_vehicle_is_the_lead():
     d, _ = SafetySupervisor(Config()).arbitrate(ctx_with([cut], speed=60), vlm(LongAction.ACCELERATE, 90))
     assert d.longitudinal is LongAction.DECELERATE  # the ACC gap cap applies to the cutting-in car
     assert abs(d.target_speed_kmh - (15 - 5.0) / 1.8 * 3.6) < 1e-6
+
+
+def moving(dist, closing):
+    d = car(dist, ttc=dist / closing)
+    d.closing_speed_mps = closing
+    return d
+
+
+def test_aeb_confirmation_ignores_one_frame_phantoms():
+    cfg = Config()
+    cfg.safety.aeb_confirm_s = 0.15
+    s = SafetySupervisor(cfg)
+    d, alerts = s.arbitrate(ctx_with([moving(12, 12)], t=10.0), vlm(LongAction.KEEP, t=10.0))
+    assert d.longitudinal is LongAction.DECELERATE and [a.kind for a in alerts] == ["FCW"]  # not confirmed yet
+    d, _ = s.arbitrate(ctx_with([], t=10.05), vlm(LongAction.KEEP, t=10.05))  # gone: it was a one-off
+    assert d.longitudinal is not LongAction.EMERGENCY_BRAKE
+    for t in (10.1, 10.2):  # a real target keeps triggering
+        d, _ = s.arbitrate(ctx_with([moving(12, 12)], t=t), vlm(LongAction.KEEP, t=t))
+    assert d.longitudinal is LongAction.DECELERATE  # 0.1 s of triggering so far
+    d, alerts = s.arbitrate(ctx_with([moving(11, 12)], t=10.25), vlm(LongAction.KEEP, t=10.25))
+    assert d.longitudinal is LongAction.EMERGENCY_BRAKE and alerts[0].kind == "AEB"
+

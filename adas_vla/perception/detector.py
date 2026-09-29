@@ -29,9 +29,16 @@ def traffic_light_color(frame_bgr: np.ndarray, box: tuple[float, float, float, f
 
 
 def is_ego_hood(box: tuple[float, float, float, float], width: int, height: int) -> bool:
-    """The ego car's own hood/dashboard is often detected as a 'car' spanning the bottom of the frame."""
+    """The ego car's own hood/dashboard is often detected as a 'car' spanning the bottom of the frame.
+
+    A box reaching the bottom that spans nearly the whole width is the ego car (hood + dashboard + windscreen
+    frame) whatever its top: a real vehicle fills 90% of a 60 deg view only within ~2 m, where it was already
+    tracked while approaching (AEB acts earlier), so dropping such boxes costs no safety.
+    """
     x1, y1, x2, y2 = box
-    return (x2 - x1) > 0.55 * width and y2 > 0.9 * height and y1 > 0.5 * height
+    if y2 <= 0.9 * height:
+        return False
+    return (x2 - x1) > 0.9 * width or ((x2 - x1) > 0.55 * width and y1 > 0.5 * height)
 
 
 class ObjectDetector:

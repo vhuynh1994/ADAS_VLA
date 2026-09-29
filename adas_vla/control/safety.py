@@ -15,22 +15,29 @@ from ..types import VRU_CLASSES, Alert, DrivingDecision, LatAction, LongAction, 
 
 
 class _Latch:
-    """Keeps an intervention active for `hold_s` after its trigger condition last held (no flapping)."""
+    """Activates an intervention once its trigger condition has held for `confirm_s` (target confirmation) and
+    keeps it active for `hold_s` after the condition last held (no flapping)."""
 
     def __init__(self):
         self.until = -math.inf
+        self.since: float | None = None  # start of the current run of triggered frames
         self.detail = ""
 
     def active(self, t: float) -> bool:
         return t <= self.until
 
-    def update(self, t: float, triggered: bool, hold_s: float) -> bool:
-        if triggered:
+    def update(self, t: float, triggered: bool, hold_s: float, confirm_s: float = 0.0) -> bool:
+        if not triggered:
+            self.since = None
+        elif self.since is None:
+            self.since = t
+        if triggered and t - self.since >= confirm_s - 1e-9:
             self.until = t + hold_s
         return t <= self.until
 
     def reset(self) -> None:
         self.until = -math.inf
+        self.since = None
         self.detail = ""
 
 
@@ -103,6 +110,8 @@ class SafetySupervisor:
         # 1. Longitudinal collision checks on the nearest in-path (or cutting-in) object. AEB and FCW are
         #    Schmitt triggers: once active they only release when the thresholds are cleared by `hysteresis`,
         #    and they stay active for `*_hold_s` after the last trigger, so one noisy frame cannot flap the brake.
+        #    AEB acts only once its trigger has held for `aeb_confirm_s` (FCW, which already decelerates, at once):
+        #    monocular phantoms - a one-off box, a TTC spike - rarely last that long, real threats do.
         lead = ctx.lead_object()
         aeb_now = fcw_now = False
         if lead is not None and lead.distance_m is not None:
@@ -119,7 +128,7 @@ class SafetySupervisor:
                 self._aeb.detail = where + (f", TTC {ttc:.1f} s" if ttc is not None else "")
             if fcw_now:
                 self._fcw.detail = where
-        aeb = self._aeb.update(t, aeb_now, s.aeb_hold_s)
+        aeb = self._aeb.update(t, aeb_now, s.aeb_hold_s, s.aeb_confirm_s)
         fcw = self._fcw.update(t, fcw_now, s.fcw_hold_s)
         if aeb:
             alerts.append(Alert("AEB", "Emergency brake: " + self._aeb.detail + ("" if aeb_now else " (holding)"),

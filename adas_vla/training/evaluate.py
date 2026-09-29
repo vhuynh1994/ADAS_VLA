@@ -34,7 +34,8 @@ def under_brakes(gt: LongAction, pred: LongAction) -> bool:
 
 def gate_offline(cfg: Config, rec: dict, decision: DrivingDecision) -> DrivingDecision:
     """Replay the safety gate on a logged sample. The record's stored lead object (`lead`, written by the dataset
-    builders) and ego speed rebuild the scene the gate needs; the sample's own cruise speed sets the envelope."""
+    builders) and ego speed rebuild the scene the gate needs; the sample's own cruise speed sets the envelope.
+    A single sample has no history, so the scene is taken as persistent: AEB needs no confirmation time."""
     lead = rec.get("lead")
     detections = []
     if lead:
@@ -45,7 +46,8 @@ def gate_offline(cfg: Config, rec: dict, decision: DrivingDecision) -> DrivingDe
         )]
     ctx = SceneContext(frame_idx=0, timestamp_s=0.0, width=1280, height=720, ego=EgoState(rec["ego_speed_kmh"]),
                        detections=detections, lanes=LaneInfo(image_width=1280))
-    cfg = replace(cfg, control=replace(cfg.control, cruise_speed_kmh=rec.get("cruise_speed_kmh", 60.0)))
+    cfg = replace(cfg, control=replace(cfg.control, cruise_speed_kmh=rec.get("cruise_speed_kmh", 60.0)),
+                  safety=replace(cfg.safety, aeb_confirm_s=0.0))
     final, _ = SafetySupervisor(cfg).arbitrate(ctx, replace(decision, timestamp_s=0.0))
     return final
 

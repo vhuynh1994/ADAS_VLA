@@ -181,14 +181,14 @@ làn trống). Vì vậy bước **label → review → LoRA** là bắt buộc 
   perception bỏ sót vật thể quá gần, nhãn near-crash mơ hồ, lane change hiếm (model không dự đoán CHANGE_*).
 - **Safety gate** vẫn phanh trong các ca VLM bỏ sót (xem `outputs/demo_crash_v3_h264.mp4`).
 
-## Cập nhật 29/09/2026 (viết trong phiên cloud, **chưa chạy trên GPU** — xem checklist trong `CLAUDE.md`)
+## Cập nhật 29/09/2026 (viết trong phiên cloud, đã kiểm chứng trên GPU — kết quả ở mục sau)
 
 - **Perception:** bbox chạm mép dưới khung hình (xe rất gần bị cắt) không còn bị ước lượng *xa hơn thật*: dùng thêm
   chiều rộng bbox và mặt đường (`camera.mount_height_m`) làm cận trên. Xe làn bên đang **cắt làn** được gắn cờ
   `cutting_in` (`CUTTING IN from the left/right` trong context của VLM, nhãn `cut-in` trên HUD) và được safety gate
   coi là lead → ACC/FCW phản ứng trước khi nó vào hẳn làn. Tham số: `perception.cut_in_rate`, `cut_in_max_distance_m`.
 - **Safety gate:** AEB/FCW có hysteresis và thời gian giữ (`safety.aeb_hold_s`, `fcw_hold_s`, `hysteresis`) — một
-  frame nhiễu không còn làm phanh nhấp nhả. **Golden vectors** `tests/data/safety_golden.json` (203 kịch bản, sinh bằng
+  frame nhiễu không còn làm phanh nhấp nhả. **Golden vectors** `tests/data/safety_golden.json` (204 kịch bản, sinh bằng
   `python scripts/safety_golden.py`) là test tương đương cho bản C++ trên SA8797P; CI kiểm tra file luôn khớp với gate.
 - **VLM 2 frame:** `vlm.prev_frame_s: 0.5` đưa thêm frame 0,5 s trước dưới dạng video 2 frame. Qwen2.5-VL gói 2 frame
   vào một temporal patch nên **vẫn 220 visual token**, latency gần như không đổi, model nhìn được xe trước chậm dần /
@@ -203,6 +203,30 @@ làn trống). Vì vậy bước **label → review → LoRA** là bắt buộc 
   thống) khi dataset có trường `lead` (builder mới ghi; ds_v2 cũ phải build lại mới có).
 - **CI:** `.github/workflows/ci.yml` chạy pytest với Python 3.10 và 3.12 (không cần torch), kiểm tra cú pháp mọi module
   và golden vectors. Sửa lỗi f-string lồng nhau trong `reasoning/llm.py` chỉ chạy được trên Python ≥ 3.12.
+
+## Kiểm chứng trên PC (29/09/2026)
+
+Hold/hysteresis của AEB kéo dài các phát hiện sai của perception đơn camera thành phanh khẩn cấp nhiều giây
+(clip bám xe bình thường: AEB 33% thời gian). Đã sửa tận gốc ở perception và thêm xác nhận mục tiêu cho AEB:
+
+- **Vận tốc tiếp cận / TTC** (`perception/geometry.py`): trước đây lấy hiệu khoảng cách giữa 2 frame liên tiếp → ở 60 fps
+  nhiễu vài % của khoảng cách thành hàng chục m/s ("xe cách 24 m lao tới 59 km/h"). Giờ là hồi quy tuyến tính khoảng cách
+  theo thời gian trong `perception.velocity_window_s` (0,5 s), chỉ báo khi sai số chuẩn của đường hồi quy đủ nhỏ; khoảng
+  cách của một track dùng **lớp đồng thuận** (YOLO đổi car↔truck làm khoảng cách nhảy gấp đôi).
+- **Phát hiện ảo trên xe mình:** mui + taplo nhận là "car" rộng cả khung hình (AEB "xe 2 m"); vật trang trí trên taplo
+  chạm mép dưới nhận là "người 4 m" (cận trên theo mặt đường chỉ đúng khi mép dưới khung là mặt đường). Xe vượt ở khúc
+  cua không còn bị coi là cắt làn (`perception.cut_in_max_pull_away_mps`).
+- **AEB cần xác nhận** `safety.aeb_confirm_s: 0.2` (FCW vẫn tác động ngay).
+- **Đo bằng `scripts/gate_replay.py`** (chạy detector 1 lần trên GPU, phát lại hình học + TTC + gate trên CPU): 111 video
+  Nexar tập test (mốc cảnh báo/va chạm do người gán) + 24 clip Australian có nhãn + 1 clip cao tốc. Trên các clip lái
+  bình thường, AEB sai giảm từ **15,8% thời gian / 8,6 lần mỗi phút** (code cloud) xuống **1,7% / 1,1 lần**; FCW hoặc AEB
+  vẫn phản ứng trong 90% đoạn nguy hiểm của Nexar.
+- **Policy `cautious_gated` không dùng:** trên val v3, under-braking chỉ giảm 8,8% → 7,0% trong khi phanh thừa tăng
+  14,8% → 24,2%; hầu hết ca phanh thiếu không có dấu hiệu nguy hiểm nào trong perception.
+- **Dataset `ds_v3`** = đúng các mẫu của `ds_v2` build lại với perception mới (`build-dataset comma2k19 --only-from`,
+  `scripts/v4_data.sh`), thêm frame 0,5 s trước và `lead`; nhãn/split giữ qua overlay. Model 2 frame v4:
+  `scripts/pipeline_v4.sh`.
+
 ## Giới hạn và lưu ý
 
 - **Không dùng để điều khiển xe thật.** Đây là prototype R&D.

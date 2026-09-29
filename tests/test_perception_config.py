@@ -35,7 +35,7 @@ def test_distance_estimate_pinhole():
 
 def test_motion_estimator_ttc_for_approaching_object():
     cfg = Config()
-    est = MotionEstimator(cfg.camera, dist_alpha=1.0, vel_alpha=1.0)
+    est = MotionEstimator(cfg.camera, dist_tau_s=0.0)
     f = focal_length_px(1280, cfg.camera.hfov_deg)
     lanes = LaneInfo(image_width=1280)
     last = None
@@ -78,7 +78,7 @@ def test_pc_fast_profile_loads():
 
 def test_oncoming_vehicle_flagged_and_not_described_as_threat():
     cfg = Config()
-    est = MotionEstimator(cfg.camera, dist_alpha=1.0, vel_alpha=1.0)
+    est = MotionEstimator(cfg.camera, dist_tau_s=0.0)
     f = focal_length_px(1280, cfg.camera.hfov_deg)
     lanes = LaneInfo(image_width=1280)
     ego_mps = 60 / 3.6
@@ -141,6 +141,18 @@ def test_ego_hood_is_not_a_vehicle():
     assert not is_ego_hood((421, 390, 462, 413), 1164, 874)  # distant car
     assert not is_ego_hood((829, 338, 1164, 540), 1164, 874)  # large close car in the next lane
     assert not is_ego_hood((300, 300, 1000, 870), 1164, 874)  # truck right in front: tall box, top not low
+    # Australian dashcam: hood + dashboard + road seen as one full-width 'car' (phantom AEB at "2 m")
+    assert is_ego_hood((0, 263, 1280, 700), 1280, 720)
+    assert not is_ego_hood((40, 200, 1240, 500), 1280, 720)  # bus crossing ahead: wide, but on the road
+
+
+def test_object_on_dashboard_is_not_close():
+    """Australian dashcam regression: a small ornament on the dashboard, detected as a 'person' touching the
+    frame bottom, got the ground-plane distance of the bottom row (4 m) and triggered AEB + VRU braking."""
+    f = focal_length_px(1280, 60.0)
+    ornament = Detection("person", 0.5, (831, 663, 896, 719))
+    dist = estimate_distance(ornament, f, frame_height=720, cam_height_m=1.3)
+    assert dist == pytest.approx(estimate_distance(ornament, f)) and dist > 30
 
 
 def test_nexar_sample_times():
@@ -162,10 +174,13 @@ def test_clipped_box_uses_width_and_ground_plane():
     from adas_vla.perception.geometry import ground_distance
 
     f = focal_length_px(1280, 60.0)
-    truck = Detection("truck", 0.9, (300, 500, 1000, 715))  # bottom edge cut by the frame: only 215 px tall
-    assert estimate_distance(truck, f) == pytest.approx(f * 3.0 / 215)  # the height alone says ~15 m
+    truck = Detection("truck", 0.9, (300, 150, 1000, 715))  # bottom edge cut by the frame: only 565 px tall
+    assert estimate_distance(truck, f) == pytest.approx(f * 3.0 / 565)  # the height alone says ~5.9 m
     close = estimate_distance(truck, f, frame_height=720, cam_height_m=1.3)
     assert close == pytest.approx(min(f * 2.5 / 700, ground_distance(715, f, 720, 1.3))) and close < 5
+    # the same box with its top below the horizon would be a 0.8 m high "truck" at 4 m: not a clipped truck
+    low = Detection("truck", 0.9, (300, 500, 1000, 715))
+    assert estimate_distance(low, f, 720, 1.3) == pytest.approx(estimate_distance(low, f))
     unclipped = Detection("truck", 0.9, (300, 500, 1000, 690))
     assert estimate_distance(unclipped, f, 720, 1.3) == pytest.approx(estimate_distance(unclipped, f))
     # applied by the MotionEstimator: the same truck in the corridor is a lead a few metres away
@@ -178,7 +193,7 @@ def test_cut_in_detected_then_becomes_lead():
     from adas_vla.types import EgoState, SceneContext
 
     cfg = Config()
-    est = MotionEstimator(cfg.camera, dist_alpha=1.0, vel_alpha=1.0)
+    est = MotionEstimator(cfg.camera, dist_tau_s=0.0)
     h_px = focal_length_px(1280, cfg.camera.hfov_deg) * 1.5 / 20  # car 20 m ahead
     lanes = LaneInfo(image_width=1280)
     seen = []
@@ -196,9 +211,23 @@ def test_cut_in_detected_then_becomes_lead():
     assert "CUTTING IN from the right" in det.describe() and "closing in" in det.describe()
 
 
+def test_overtaking_car_pulling_away_is_not_a_cut_in():
+    """Highway regression (highway_traffic.mp4, t = 30.5 s): a car overtaking in the next lane on a curve drifts
+    toward the corridor in the image while pulling away from us; it must not become a cut-in lead (false FCW)."""
+    cfg = Config()
+    est = MotionEstimator(cfg.camera, dist_tau_s=0.0)
+    f = focal_length_px(1280, cfg.camera.hfov_deg)
+    for k, x1 in enumerate([1000, 960, 920, 880, 840]):
+        dist = 11.0 + 0.2 * k  # 2 m/s faster than us
+        h_px = f * 1.5 / dist
+        det = Detection("car", 0.9, (x1, 600 - h_px, x1 + 100, 600), track_id=6)
+        est.update([det], k * 0.1, LaneInfo(image_width=1280), 1280, 720)
+        assert not det.cutting_in
+
+
 def test_adjacent_car_wobble_is_not_a_cut_in():
     cfg = Config()
-    est = MotionEstimator(cfg.camera, dist_alpha=1.0, vel_alpha=1.0)
+    est = MotionEstimator(cfg.camera, dist_tau_s=0.0)
     h_px = focal_length_px(1280, cfg.camera.hfov_deg) * 1.5 / 20
     for k in range(12):
         x1 = 940 + (6 if k % 2 else -6)  # box jitter of an adjacent car driving straight

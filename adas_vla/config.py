@@ -45,6 +45,8 @@ class PerceptionConfig:
     # shrinks faster than cut_in_rate (corridor widths per second) is reported as cutting in.
     cut_in_rate: float = 0.25
     cut_in_max_distance_m: float = 30.0
+    cut_in_max_pull_away_mps: float = 1.0  # a vehicle moving away from us faster than this is not a cut-in threat
+    velocity_window_s: float = 0.5  # closing speed = least-squares distance slope over this window
 
 
 @dataclass
@@ -109,6 +111,7 @@ class SafetyConfig:
     aeb_hold_s: float = 0.5
     fcw_hold_s: float = 1.0
     hysteresis: float = 1.3
+    aeb_confirm_s: float = 0.2  # AEB acts once triggered this long (target confirmation, see scripts/gate_replay.py)
 
 
 @dataclass
