@@ -2,11 +2,11 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-data/
-outputs/
-checkpoints/
+/data/
+/outputs/
+/checkpoints/
 *.pt
 *.mp4
 *.egg-info/
-models/
-docs/internal/
+/models/
+/docs/internal/

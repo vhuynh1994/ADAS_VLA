@@ -1,0 +1,647 @@
+{
+ "config": {
+  "safety": {
+   "aeb_ttc_s": 1.5,
+   "fcw_ttc_s": 2.7,
+   "min_distance_m": 4.0,
+   "min_time_gap_s": 0.8,
+   "vru_brake_distance_m": 15.0,
+   "ldw_offset": 0.6,
+   "allow_lane_change": false,
+   "max_speed_kmh": 130.0,
+   "aeb_hold_s": 0.5,
+   "fcw_hold_s": 1.0,
+   "hysteresis": 1.3
+  },
+  "control": {
+   "cruise_speed_kmh": 60.0,
+   "time_gap_s": 1.8,
+   "standstill_gap_m": 5.0,
+   "kp_speed": 0.08,
+   "kp_steer": 0.5,
+   "nudge_bias": 0.1,
+   "lane_change_bias": 0.25
+  },
+  "vlm": {
+   "max_decision_age_s": 2.0
+  }
+ },
+ "cases": [
+  {"name": "ego30_empty_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[],"lanes":null,"vlm":null,"expect":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego30_empty_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_empty_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":66.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_empty_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_empty_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_empty_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_empty_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego30_car_3m_ttcNone_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttcNone_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttcNone_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttcNone_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttcNone_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttcNone_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttcNone_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc1.0_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc1.0_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc1.0_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc1.0_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc1.0_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc1.0_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc1.0_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc2.5_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc2.5_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc2.5_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc2.5_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc2.5_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc2.5_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_3m_ttc2.5_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_10m_ttcNone_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego30_car_10m_ttcNone_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_10m_ttcNone_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_10m_ttcNone_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_10m_ttcNone_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_10m_ttcNone_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_10m_ttcNone_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc1.0_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc1.0_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc1.0_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc1.0_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc1.0_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc1.0_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc1.0_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc2.5_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"rules","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc2.5_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc2.5_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc2.5_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc2.5_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc2.5_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_10m_ttc2.5_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego30_car_30m_ttcNone_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego30_car_30m_ttcNone_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_30m_ttcNone_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_30m_ttcNone_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_30m_ttcNone_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_30m_ttcNone_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_car_30m_ttcNone_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc1.0_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc1.0_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc1.0_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc1.0_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc1.0_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc1.0_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc1.0_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc2.5_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":24.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc2.5_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":24.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc2.5_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":24.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc2.5_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":24.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc2.5_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc2.5_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego30_car_30m_ttc2.5_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":24.0,"source":"safety","alerts":["FCW","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego30_person_8m_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"rules","alerts":["PED"]}}
+  ]},
+  {"name": "ego30_person_8m_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["PED"]}}
+  ]},
+  {"name": "ego30_person_8m_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["PED"]}}
+  ]},
+  {"name": "ego30_person_8m_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["PED"]}}
+  ]},
+  {"name": "ego30_person_8m_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["PED"]}}
+  ]},
+  {"name": "ego30_person_8m_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["PED"]}}
+  ]},
+  {"name": "ego30_person_8m_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["PED","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego30_person_20m_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego30_person_20m_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_person_20m_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_person_20m_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_person_20m_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_person_20m_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_person_20m_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego30_cut_in_car_15m_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego30_cut_in_car_15m_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_cut_in_car_15m_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_cut_in_car_15m_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_cut_in_car_15m_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_cut_in_car_15m_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego30_cut_in_car_15m_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego30_red_light_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":null,"expect":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"rules","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego30_red_light_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego30_red_light_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":66.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego30_red_light_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego30_red_light_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego30_red_light_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego30_red_light_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":["RED_LIGHT","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_empty_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[],"lanes":null,"vlm":null,"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego60_empty_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_empty_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":66.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_empty_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_empty_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_empty_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_empty_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_car_3m_ttcNone_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttcNone_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttcNone_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttcNone_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttcNone_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttcNone_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttcNone_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc1.0_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc1.0_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc1.0_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc1.0_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc1.0_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc1.0_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc1.0_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":1.0,"closing_speed_mps":3.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc2.5_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc2.5_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc2.5_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc2.5_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc2.5_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc2.5_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_3m_ttc2.5_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":3.0,"ttc_s":2.5,"closing_speed_mps":1.2,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_10m_ttcNone_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"rules","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttcNone_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttcNone_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttcNone_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttcNone_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttcNone_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttcNone_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc1.0_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc1.0_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc1.0_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc1.0_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc1.0_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc1.0_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc1.0_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":1.0,"closing_speed_mps":10.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc2.5_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"rules","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc2.5_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc2.5_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc2.5_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc2.5_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc2.5_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_10m_ttc2.5_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":2.5,"closing_speed_mps":4.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_car_30m_ttcNone_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego60_car_30m_ttcNone_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_car_30m_ttcNone_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_car_30m_ttcNone_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_car_30m_ttcNone_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_car_30m_ttcNone_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_car_30m_ttcNone_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc1.0_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc1.0_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc1.0_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc1.0_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc1.0_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc1.0_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc1.0_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":1.0,"closing_speed_mps":30.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc2.5_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":48.0,"source":"rules","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc2.5_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":48.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc2.5_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":48.0,"source":"safety","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc2.5_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc2.5_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc2.5_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["FCW"]}}
+  ]},
+  {"name": "ego60_car_30m_ttc2.5_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":2.5,"closing_speed_mps":12.0,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":48.0,"source":"safety","alerts":["FCW","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_person_8m_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"rules","alerts":["FCW","PED"]}}
+  ]},
+  {"name": "ego60_person_8m_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["FCW","PED"]}}
+  ]},
+  {"name": "ego60_person_8m_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["FCW","PED"]}}
+  ]},
+  {"name": "ego60_person_8m_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["FCW","PED"]}}
+  ]},
+  {"name": "ego60_person_8m_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["FCW","PED"]}}
+  ]},
+  {"name": "ego60_person_8m_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["FCW","PED"]}}
+  ]},
+  {"name": "ego60_person_8m_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["FCW","PED","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_person_20m_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego60_person_20m_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_person_20m_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_person_20m_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_person_20m_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_person_20m_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_person_20m_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"person","distance_m":20.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":30.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_cut_in_car_15m_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":null,"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ego60_cut_in_car_15m_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_cut_in_car_15m_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_cut_in_car_15m_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_cut_in_car_15m_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_cut_in_car_15m_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "ego60_cut_in_car_15m_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"car","distance_m":15.0,"ttc_s":null,"closing_speed_mps":0.0,"in_ego_path":false,"cutting_in":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":["LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "ego60_red_light_vlm-none", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":null,"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"rules","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego60_red_light_vlm-keep", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego60_red_light_vlm-accelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"ACCELERATE","lateral":"KEEP_LANE","target_speed_kmh":90,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":66.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego60_red_light_vlm-decelerate", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego60_red_light_vlm-brake", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20,"t":10.0},"expect":{"longitudinal":"BRAKE","lateral":"KEEP_LANE","target_speed_kmh":20.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego60_red_light_vlm-stop", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["RED_LIGHT"]}}
+  ]},
+  {"name": "ego60_red_light_vlm-change_left", "steps": [
+   {"t":10.0,"ego_kmh":60.0,"detections":[{"cls":"traffic light","attribute":"red","in_ego_path":false}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"CHANGE_LEFT","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":["RED_LIGHT","LANE_CHANGE_SUGGESTED"]}}
+  ]},
+  {"name": "stale_vlm_uses_rules", "steps": [
+   {"t":10.0,"ego_kmh":50.0,"detections":[{"cls":"car","distance_m":30.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":5.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":50.0,"source":"rules","alerts":[]}}
+  ]},
+  {"name": "ldw_right", "steps": [
+   {"t":10.0,"ego_kmh":50.0,"detections":[],"lanes":{"left_x":620,"right_x":1020},"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":["LDW"]}}
+  ]},
+  {"name": "ldw_left", "steps": [
+   {"t":10.0,"ego_kmh":50.0,"detections":[],"lanes":{"left_x":260,"right_x":660},"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":["LDW"]}}
+  ]},
+  {"name": "lanes_centered", "steps": [
+   {"t":10.0,"ego_kmh":50.0,"detections":[],"lanes":{"left_x":440,"right_x":840},"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "aeb_hold_and_hysteresis", "steps": [
+   {"t":10.0,"ego_kmh":50.0,"detections":[{"cls":"car","distance_m":12.0,"ttc_s":1.4,"closing_speed_mps":8.571428571428571,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}},
+   {"t":10.1,"ego_kmh":50.0,"detections":[{"cls":"car","distance_m":20.0,"ttc_s":1.8,"closing_speed_mps":11.11111111111111,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.1},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}},
+   {"t":10.3,"ego_kmh":50.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.3},"expect":{"longitudinal":"EMERGENCY_BRAKE","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"safety","alerts":["AEB"]}},
+   {"t":10.7,"ego_kmh":50.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.7},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"safety","alerts":["FCW"]}},
+   {"t":11.2,"ego_kmh":50.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":11.2},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "fcw_hold", "steps": [
+   {"t":10.0,"ego_kmh":50.0,"detections":[{"cls":"car","distance_m":10.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.0},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":10.0,"source":"safety","alerts":["FCW"]}},
+   {"t":10.5,"ego_kmh":50.0,"detections":[{"cls":"car","distance_m":40.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.5},"expect":{"longitudinal":"DECELERATE","lateral":"KEEP_LANE","target_speed_kmh":40.0,"source":"safety","alerts":["FCW"]}},
+   {"t":11.5,"ego_kmh":50.0,"detections":[{"cls":"car","distance_m":40.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":11.5},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":[]}}
+  ]},
+  {"name": "vru_then_clear", "steps": [
+   {"t":10.0,"ego_kmh":30.0,"detections":[{"cls":"person","distance_m":8.0,"ttc_s":null,"closing_speed_mps":null,"in_ego_path":true}],"lanes":null,"vlm":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0,"t":10.0},"expect":{"longitudinal":"STOP","lateral":"KEEP_LANE","target_speed_kmh":0.0,"source":"vlm","alerts":["PED"]}},
+   {"t":10.2,"ego_kmh":30.0,"detections":[],"lanes":null,"vlm":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60,"t":10.2},"expect":{"longitudinal":"KEEP","lateral":"KEEP_LANE","target_speed_kmh":60.0,"source":"vlm","alerts":[]}}
+  ]}
+ ]
+}
