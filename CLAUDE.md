@@ -74,6 +74,10 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   one image), DataLoader workers fork fine, eval logs probs. `scripts/pipeline_v4.sh`: train v4 (base v3,
   `--brake-weight 2.0 --workers 2`, prev_frame_s 0.5), merge, eval v4 and v3 on ds_v3 (val + Nexar), sweep, demo,
   reports `outputs/report_v4_{val,nexar}.html`. Make v4 the default only if it wins on under-braking first.
+- v4 result (2026-09-30, ds_v3 val 900 / Nexar test 424): v3 73.1% joint / under 9.1% / over 14.3%; v4 67.1% /
+  6.2% / 23.7% (Nexar: v3 63.7 / 3.5 / 32.8, v4 61.1 / 2.4 / 36.6). v3 with cautious decoding at tau 0.35 on the same
+  val gives 67.3% / 6.1% / 23.1% -> v4 only moved along v3's trade-off curve (brake weight 2.0), the 2-frame input
+  added no measurable information. v3 stays the default; v4 kept in `models/adas-vlm-v4` (needs prev_frame_s 0.5).
 
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
