@@ -139,7 +139,8 @@ configs/              default.yaml (Qwen2.5-VL-3B + Qwen3-4B, 4-bit) · smoke.ya
 scripts/              download_samples.sh · download_models.sh · fetch_hf.py · sweep_policy.py · safety_golden.py
 tests/data/safety_golden.json   kịch bản → quyết định mong đợi của safety gate (test tương đương cho bản C++)
 .github/workflows/ci.yml        pytest trên Python 3.10 + 3.12, không cần GPU
-docs/DEPLOY_SA8797P.md
+docs/DEPLOY_SA8797P.md          đường deploy lên Snapdragon Ride Elite (toolchain công khai)
+docs/AI_DEPLOYMENT.md           quy trình deploy B0–B9, DoD + công thức đo, phân loại tối ưu, realtime hard/firm/soft
 ```
 
 ## Kết quả đã kiểm chứng trên PC này (RTX 4060 Laptop 8 GB, 27/09/2026)
