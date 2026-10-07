@@ -257,23 +257,27 @@ perf profile, số thread, p50/p95/p99/max, peak memory, (nếu có) P_avg và E
 model sai / chậm / vắng.
 
 **Đặc trưng.** Ba lớp kiểm chứng: (1) **đơn vị + golden vectors** cho phần deterministic (ADAS_VLA
-`tests/data/safety_golden.json`, 203 kịch bản, dùng làm **equivalence test** cho bản C++); (2) **replay** log/video
-thật qua toàn pipeline (SIL), so sánh quyết định cuối với nhãn; (3) **fault injection**: model trả kết quả trễ,
+`tests/data/safety_golden.json`, 206 kịch bản, dùng làm **equivalence test** cho bản C++); (2) **replay** log/video
+thật qua toàn pipeline (SIL), so sánh quyết định cuối với nhãn (ADAS_VLA `scripts/gate_replay.py capture|replay`: detector +
+lane chạy một lần trên GPU, hình học + TTC + gate phát lại trên CPU theo từng biến thể config); (3) **fault injection**: model trả kết quả trễ,
 JSON lỗi, mất frame, tracker mất ID → gate phải fallback về luật (ADAS_VLA `max_decision_age_s`).
 
 **Công thức.**
 
 ```
-Tỉ lệ sai lệch golden:  mismatch = #{case: C++ ≠ Python} / 203   → phải = 0 (so sánh số thực với ε = 1e-6)
+Tỉ lệ sai lệch golden:  mismatch = #{case: C++ ≠ Python} / 206   → phải = 0 (so sánh số thực với ε = 1e-6)
 System under-braking  = under-braking sau gate (adas-vla eval: system_under_braking_rate) ≤ under-braking VLM
    (gate chỉ được phanh NHIỀU hơn VLM: bất đẳng thức này là một test, không phải nhận xét)
 Deadline-miss ratio   DMR = #job trễ / #job   (ngưỡng theo loại realtime, mục 4.4)
 Thời gian phản ứng    t_react = t_lệnh_phanh − t_hazard_visible   trên clip Nexar (time_of_alert có sẵn)
 ```
 
-**DoD B8.** 61+ unit test và golden check xanh trong CI; bản C++ của gate + controller tái tạo 100 % golden vectors;
-replay ≥ 1 giờ video thật: không có false AEB ở đường trống (ngưỡng đề xuất 0 lần / giờ cho AEB, ≤ 2 lần / giờ cho
-FCW); fault-injection: 100 % trường hợp VLM vắng/trễ đều cho ra quyết định từ luật trong đúng chu kỳ.
+**DoD B8.** 65+ unit test và golden check xanh trong CI; bản C++ của gate + controller tái tạo 100 % golden vectors;
+replay video lái bình thường: tỉ lệ thời gian AEB sai và số lần AEB sai mỗi phút được đo và giảm qua từng phiên bản
+(đo 29/09 trên PC bằng `gate_replay.py`: 15,8 % / 8,6 lần mỗi phút → 4,0 % / 2,3 lần mỗi phút; ngưỡng đề xuất dài hạn
+cho camera đơn: ≤ 1 lần mỗi giờ AEB, ≤ 6 lần mỗi giờ FCW, nhiều khả năng cần radar/depth fusion để đạt); đồng thời tỉ lệ
+AEB trong cửa sổ nguy hiểm Nexar không được giảm thêm so với cửa sổ đối chứng (hiện 53 % so với 25 %); fault-injection:
+100 % trường hợp VLM vắng/trễ đều cho ra quyết định từ luật trong đúng chu kỳ.
 
 ### B9. Vận hành: phát hành, giám sát, cập nhật
 
@@ -449,7 +453,7 @@ Những điều phải nắm:
 4. **Nhiệt / DVFS**: WCET phải đo ở clock **thấp nhất có thể xảy ra** (sau throttle) hoặc khóa clock.
 5. **Giám sát độc lập**: watchdog ngoài (safety island/MCU) phát hiện tác vụ hard treo trong ≤ 1 chu kỳ; có hành
    động an toàn (minimal risk maneuver).
-6. **Chứng cứ**: golden vectors (ADAS_VLA 203 kịch bản) + test tương đương bản C++; traceability yêu cầu → test
+6. **Chứng cứ**: golden vectors (ADAS_VLA 206 kịch bản) + test tương đương bản C++; traceability yêu cầu → test
    (ISO 26262 phần 6).
 
 #### Firm realtime (ví dụ: perception mỗi frame 33 ms – detector, lane, tracker, TTC)
@@ -463,7 +467,11 @@ Những điều phải nắm:
    perception hiện chạy đồng bộ). Không bao giờ xếp hàng frame → latency tích luỹ (queue growth) là lỗi điển hình.
 2. **Ràng buộc (m, k)-firm**: trong **mọi** k job liên tiếp có ít nhất m job kịp deadline. Ví dụ (m,k) = (9,10) cho
    perception: không được mất 2 frame liên tiếp ở 30 fps vì tracker/TTC cần dt ≤ 100 ms để ước lượng closing speed.
-   Hold time của AEB/FCW (`aeb_hold_s` 0.5 s) chính là cơ chế **chịu khoảng trống** của tầng hard khi tầng firm trễ.
+   Hold time của AEB/FCW (`aeb_hold_s` 0.5 s) là cơ chế **chịu khoảng trống** của tầng hard khi tầng firm trễ; cửa sổ
+   xác nhận `aeb_confirm_s` 0.1 s (đếm xuyên qua các lần mất phát hiện ≤ `aeb_confirm_gap_s` 0.1 s) là bộ lọc kiểu
+   (m,k) ở chiều ngược lại: AEB chỉ tác động khi trigger giữ đủ lâu, đổi 100 ms thời gian phản ứng lấy ít AEB ảo hơn
+   (đo trên PC 29/09: AEB sai trên clip bình thường 15,8 % → 4,0 % thời gian). 100 ms này **phải được cộng vào**
+   ngân sách reaction time của B0 (xem ví dụ mục 4.3).
 3. **Thước đo**: DMR, chuỗi miss dài nhất, age p99. Mục tiêu đề xuất: DMR ≤ 1 %, không có 2 miss liên tiếp,
    age p99 ≤ 2T.
 4. **Thiết kế tránh miss**: WCET perception ≤ 0.7T (headroom 30 %); hậu xử lý có giới hạn trên (top-k, max track);
@@ -520,11 +528,16 @@ Với kích hoạt đồng bộ theo pha (time-triggered, LET): L = Σ T_i  (xá
 ```
 
 Ví dụ ADAS_VLA (mục tiêu đề xuất): camera 33 ms + perception (T 33, R ≤ 25) + gate (T 10, R ≤ 1) + controller
-(cùng chu kỳ gate) → `L_max ≈ 33 + (33+25) + (10+1) ≈ 102 ms` chưa tính độ trễ phanh thuỷ lực. Nằm trong ngân sách
-AEB 100–150 ms nhưng không dư → mọi tối ưu dataflow (3.1) ở đây có ý nghĩa an toàn, không chỉ hiệu năng.
+(cùng chu kỳ gate) → `L_max ≈ 33 + (33+25) + (10+1) ≈ 102 ms` chưa tính độ trễ phanh thuỷ lực. Cộng thêm cửa sổ
+xác nhận AEB `aeb_confirm_s` 0.1 s (mục 4.2) và cửa sổ hồi quy vận tốc `velocity_window_s` 0.5 s (TTC chỉ ổn định khi
+đã có đủ mẫu) thì thời gian từ lúc hazard xuất hiện đến lệnh phanh là ≈ 200 ms cộng thời gian TTC hội tụ. Vượt ngân
+sách AEB 100–150 ms đề xuất ở B0 → B0 phải quyết định: chấp nhận (đánh đổi với AEB ảo của camera đơn) hay giảm bằng
+perception tốt hơn (fusion radar/depth). Mọi tối ưu dataflow (3.1) ở đây có ý nghĩa an toàn, không chỉ hiệu năng.
 
-**Jitter** và vì sao nó tệ hơn latency: bộ ước lượng closing speed/TTC dùng `dt` giữa hai frame; jitter kích hoạt
-làm `dt` sai → `v = Δd/dt` sai → TTC sai. Dùng **timestamp capture** của cảm biến, không dùng thời điểm xử lý.
+**Jitter** và vì sao nó tệ hơn latency: bộ ước lượng closing speed/TTC hồi quy khoảng cách theo thời gian trong cửa sổ
+`velocity_window_s` 0.5 s (trước là hiệu hai frame liên tiếp: nhiễu vài % khoảng cách ở 60 fps thành hàng chục m/s, một
+nguyên nhân của AEB ảo đã sửa 29/09); hồi quy chịu nhiễu khoảng cách tốt hơn nhưng vẫn cần trục thời gian đúng: jitter
+ở timestamp làm độ dốc sai → TTC sai. Dùng **timestamp capture** của cảm biến, không dùng thời điểm xử lý.
 
 **Cấu hình OS tối thiểu cho tác vụ hard/firm trên Linux**: kernel PREEMPT_RT; `SCHED_FIFO` ưu tiên gate > perception
 > VLM > HUD; `isolcpus` + `taskset` cho gate; IRQ affinity camera về core perception; `mlockall(MCL_CURRENT|MCL_FUTURE)`;
@@ -559,7 +572,7 @@ tầng, vì tranh chấp mới là nguồn jitter chính.
 | Detector YOLO11s 384×640 INT8 | `perception/detector.py` | firm | 33 ms | 15 ms | HTP | mAP ≥ FP32 − 1 điểm; recall xe gần ≥ FP32 |
 | Lane YOLOP 640×640 | `perception/lanes.py` | firm | 33–66 ms | 10 ms | HTP (hoặc T = 2 frame) | offset_norm sai số ≤ 0.1 |
 | Tracker ByteTrack + geometry/TTC/cut-in | `perception/geometry.py` | firm | 33 ms | 3 ms | CPU C++ | TTC sai số theo golden perception |
-| **Safety gate** | `control/safety.py` → C++ | **hard** | 10 ms | 1 ms | CPU cô lập / safety island | 203/203 golden vectors |
+| **Safety gate** | `control/safety.py` → C++ | **hard** | 10 ms | 1 ms | CPU cô lập / safety island | 206/206 golden vectors |
 | **Controller P** | `control/controller.py` → C++ | **hard** | 10 ms | 0.5 ms | cùng gate | golden vectors |
 | VLM Qwen2.5-VL-3B W4A16, 220 token, 2 frame | `reasoning/vlm.py` | soft | sự kiện / 15 frame | p50 ≤ 1 s, age ≤ 2 s | HTP (ViT + LM) hoặc GPU | under-braking sau gate ≤ 1 %, joint ≥ 85 % |
 | HUD / log | `hud.py`, `events.py` | soft | 33 ms | best-effort | GPU/CPU | – |
@@ -587,7 +600,7 @@ board: (1) VLM và CNN cùng NPU không preempt (mục 4.3); (2) Python trên đ
 | B5 | hướng dẫn qairt-converter/quantizer (docs/DEPLOY_SA8797P.md) | chưa chạy trên SDK thật |
 | B6 | pipeline dual-rate, `FrameHistory`, `max_decision_age_s`, `_AsyncVLMWorker` | bản C++ cho tracker/geometry/gate/controller; zero-copy |
 | B7 | đo p50 VLM trên RTX 4060 | mọi số trên HTP |
-| B8 | 61 unit test, 203 golden vectors, `safety_golden.py --check`, `gate_offline` trong eval | test tương đương C++; replay 1 giờ; fault injection có hệ thống |
+| B8 | 65 unit test, 206 golden vectors, `safety_golden.py --check`, `gate_offline` trong eval, `scripts/gate_replay.py` (replay SIL: 111 video Nexar + 24 clip Australian + clip cao tốc; kết quả 29/09 trong CLAUDE.md) | test tương đương C++; số liệu replay theo giờ (lần mỗi giờ); fault injection có hệ thống (VLM trễ/vắng, mất frame) |
 | B9 | – | manifest, watchdog, telemetry |
 
 ### 5.3 ADAS_CNN: ánh xạ milestone ↔ bước
@@ -619,8 +632,10 @@ CenterNet/ResNet trên HTP. Khi ghép CenterNet KITTI vào vai detector của AD
 
 | Số | Nguồn | Trạng thái |
 |---|---|---|
-| VLM p50 0.90 s, joint 72.6 %, under-braking 8.8 %, JSON 100 % (val 900) | CLAUDE.md, eval v3 trên RTX 4060 | **đã đo** (PC) |
-| Nexar crash: 62.7 % / under-braking 4.0 % | CLAUDE.md | **đã đo** (PC) |
+| VLM v3 p50 0.90 s, joint 72.6 %, under-braking 8.8 %, JSON 100 % (ds_v2 val 900) | CLAUDE.md, eval v3 trên RTX 4060 | **đã đo** (PC, 28/09) |
+| Nexar crash v3: 62.7 % / under-braking 4.0 % | CLAUDE.md | **đã đo** (PC, 28/09) |
+| v3 vs v4 trên ds_v3 (val 900 / Nexar 424): v3 73.1 % joint / under 9.1 % / over 14.3 %; v4 67.1 % / 6.2 % / 23.7 % (Nexar: v3 63.7 / 3.5 / 32.8; v4 61.1 / 2.4 / 36.6) | CLAUDE.md | **đã đo** (PC, 30/09); v3 vẫn là mặc định |
+| AEB sai trên clip lái bình thường: 15,8 % thời gian / 8,6 lần mỗi phút → 4,0 % / 2,3 lần mỗi phút; AEB trong cửa sổ nguy hiểm Nexar 53 % (đối chứng 25 %) | `scripts/gate_replay.py`, CLAUDE.md | **đã đo** (PC, 29/09) |
 | YOLOP ≈ 7 ms trên GPU PC | ghi chú configs/default.yaml | ước tính trên PC, chưa có protocol |
 | Mọi số latency / memory / power trên HTP, SA8797P | – | **chưa đo** |
 | Ngân sách T, D trong bảng 5.1 | tài liệu này | **đề xuất**, cần chốt với chủ repo |
