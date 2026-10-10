@@ -62,6 +62,14 @@ class DepthConfig:
     align_tau_s: float = 1.0  # time constant smoothing scale/shift across frames (0 = none)
     align_max_age_s: float = 1.0  # keep the last good alignment this long when a frame has no reliable fit
 
+    def __post_init__(self) -> None:
+        # YAML 1.1 reads a bare `off` (in a config file or `--set perception.depth.mode=off`) as False, which silently
+        # meant "replace": the gate_replay "pinhole" baseline of 2026-10-10 was depth replace.
+        if self.mode is False:
+            self.mode = "off"
+        if self.mode not in ("replace", "min", "off"):
+            raise ValueError(f"perception.depth.mode must be replace | min | off, got {self.mode!r}")
+
 
 @dataclass
 class PerceptionConfig:

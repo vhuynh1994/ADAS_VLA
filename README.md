@@ -270,6 +270,14 @@ cuối run in p50/p95/p99/max, DMR so với deadline `budget.deadlines_ms`.
 - Sửa lỗi tiềm ẩn: `reset()` ở mode async bây giờ bỏ cả quyết định VLM đang chạy dở của video trước (trước đây timeline video mới
   bắt đầu lại từ 0 nên quyết định cũ có tuổi âm và vẫn được gate dùng).
 
+## Kiểm chứng Depth-Anything trên PC (10/10/2026 tối): không bật
+
+Depth tốn 27.6 ms/frame trên RTX 4060; khoảng cách depth chỉ bằng ~0.46 lần pinhole trên highway_traffic và sai khi
+nhìn tận mắt (điểm neo mặt đường giả định camera nằm ngang, đường chân trời của clip ở ~0.6 chiều cao ảnh). Replay
+trên 136 clip: mọi biến thể làm giảm AEB khi lái bình thường đều làm giảm AEB trong cửa sổ nguy hiểm của Nexar gần
+như tương đương (pinhole 53.2 %, depth 34.2 %, depth_min 40.5 %), nên `perception.depth.enabled` giữ `false`. Kèm sửa
+lỗi: YAML đọc `off` thành `False` khiến `--set perception.depth.mode=off` chạy như `replace`. Chi tiết: CLAUDE.md.
+
 ## Cập nhật 10/10/2026 (phiên cloud, **chưa chạy trên GPU**): Depth-Anything thay khoảng cách pinhole
 
 Khoảng cách từ chiều cao bbox là nguồn nhiễu lớn nhất của perception (vài % mỗi frame, gấp đôi khi YOLO đổi

@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (100 tests with torch; without it `tests/test_merge.py` is skipped as one item: 96 passed, 1 skipped; must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (101 tests with torch; without it `tests/test_merge.py` is skipped as one item: 97 passed, 1 skipped; must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -134,6 +134,34 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
 5. Deployment path: export the same checkpoint from AI Hub (`depth_anything_v2`, ONNX) and run it through
    `perception.depth.backend: onnx` (input shape read from the graph; `onnx_normalize` per export) before the HTP step.
 
+### Validation on the owner's PC (2026-10-10 evening): depth REJECTED, stays disabled
+- Speed: Depth-Anything-V2-Small (transformers, fp32, 644x364) 27.6 ms p50 on the RTX 4060; perception frame
+  23.8 -> 50.9 ms p50 on highway_traffic.mp4.
+- Distances: on highway_traffic.mp4 depth/pinhole = 0.46 median over 603 matched objects (p10 0.21, p90 0.57) and
+  visibly wrong (a small car behind the median barrier: pinhole 65 m, depth 14 m). Likely cause: the road anchors
+  assume a level camera (`geometry.ground_distance`, horizon at 0.5 H); the horizon of that clip is at ~0.6 H, so
+  every ground anchor is too close. Pinhole (box height) does not depend on the pitch.
+- Bug found and fixed: YAML 1.1 reads a bare `off` as False, so `--set perception.depth.mode=off` (the replay
+  "pinhole" baseline) silently ran `replace`. `DepthConfig.__post_init__` maps False -> "off" and rejects unknown
+  modes (test in tests/test_depth.py). Before the fix the pinhole row equalled the depth row.
+- `gate_replay.py depth` on all 136 captures (59,920 frames; backup of the pre-depth captures:
+  `outputs/gate_replay.bak_pre_depth`). Replay (normal driving 18.3 min; 111 Nexar, ctrl = chance level):
+
+  | variant | aeb_time_% | aeb_per_min | fcw+aeb_time_% | nexar_aeb_% (ctrl) | nexar_warn_% (ctrl) | au_keep_aeb_% |
+  |---|---|---|---|---|---|---|
+  | pinhole (mode=off) | 9.24 | 5.08 | 50.16 | 53.15 (25.23) | 90.09 (68.47) | 1.50 |
+  | depth (replace) | 5.87 | 3.01 | 57.49 | 34.23 (11.71) | 91.89 (73.87) | 4.50 |
+  | depth_min | 6.81 | 3.66 | 59.11 | 40.54 (17.12) | 93.69 (77.48) | 3.00 |
+  | anchors [boxes], replace | 9.53 | 5.35 | 52.13 | 54.05 (27.03) | 90.99 (69.37) | 5.00 |
+  | anchors [boxes], min | 9.25 | 5.19 | 51.42 | 52.25 (25.23) | 90.99 (69.37) | 3.50 |
+
+  Sweep (`outputs/gate_replay_depth_sweep.txt`): anchors [ground], max_rel_rmse 0.15 / 0.10, boxes + rmse 0.10, both
+  modes: every variant that lowers normal-driving AEB lowers Nexar AEB about as much (no better separation from the
+  control window); none meets the rule. `ground_rows` and `input_size` cannot be swept in replay (the road anchors are
+  computed when the depth statistics are added): they need a new `gate_replay.py depth --force` pass (~1 h GPU each),
+  not run. Decision: `perception.depth.enabled` stays false, ds_v3 not rebuilt. If depth is revisited: estimate the
+  horizon (lane vanishing point, or a per-source `camera` pitch) before the ground anchors, then re-test.
+
 ## Round 5 plan (2026-10-10, cloud session: prepared, NOT yet run): base model Qwen2.5-VL-7B-Instruct
 Owner's decision. Why: the 7B is the Qwen2.5-VL size Qualcomm AI Hub ships optimized (`qwen2_5_vl_7b_instruct`,
 Genie w4a16; SA8650P / SA8775P / SA8255P ADP listed) and it is Apache-2.0 (the 3B is Qwen Research, non-commercial).
@@ -154,6 +182,11 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   `TRAIN_EXTRA="--optimizer paged_adamw_8bit --lora-r 8"`. Step time ~2.5x the 3B (read the ETA of the smoke before
   committing the GPU overnight). PC eval latency ~2x v3 (the <= 1 s target is for the NPU, measure on the board).
   The demo runs `run` then `explain` separately: the 7B VLM and the Qwen3-4B LLM do not fit together in 8 GB.
+- Run on the owner's PC (2026-10-10 20:32 start): the smoke run with the bf16 ViT went out of memory in backward
+  (6.94 GB allocated). With `V5_EXTRA="--set vlm.quantize_vision=true"`, `TRAIN_EXTRA="--optimizer paged_adamw_8bit
+  --lora-r 8"` and `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`: peak_mem 7.2 GB, 20.2 s per optimizer step,
+  3033 steps (balanced epoch 8088 samples x 3 / grad-accum 8) = 17.0 h. Log: `outputs/v5_7b.log` (first try:
+  `outputs/v5_7b_try1_oom.log`).
 - Decision rule unchanged: v5 becomes the default (`configs/default.yaml: vlm.model_id`) only if it wins on
   under-braking first on the fixed val split, then on joint accuracy; keep the Nexar crash test as the second table.
 

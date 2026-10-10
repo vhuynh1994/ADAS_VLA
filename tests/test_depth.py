@@ -242,3 +242,13 @@ def test_depth_config_defaults_and_overrides():
     assert cfg.perception.depth.backend == "onnx"
     with pytest.raises(ValueError):
         load_config(overrides=["perception.depth.nope=1"])
+
+
+def test_depth_mode_off_survives_yaml():
+    from adas_vla.config import load_config
+
+    # YAML 1.1 parses a bare `off` as False; it must still mean "off", not fall through to replace
+    assert load_config(overrides=["perception.depth.mode=off"]).perception.depth.mode == "off"
+    assert load_config(overrides=["perception.depth.mode=min"]).perception.depth.mode == "min"
+    with pytest.raises(ValueError):
+        load_config(overrides=["perception.depth.mode=maximum"])
