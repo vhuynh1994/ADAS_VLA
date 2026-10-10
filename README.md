@@ -125,7 +125,8 @@ adas-vla export --out outputs/deploy --qnn-arch 79   # thêm bản Ultralytics Q
 adas_vla/
   types.py            Detection, LaneInfo, SceneContext, DrivingDecision, ControlCommand, Alert
   config.py           dataclass config + YAML + --set overrides
-  perception/         detector.py (YOLO11s+ByteTrack, màu đèn), geometry.py (distance/TTC/oncoming), lanes.py (YOLOP CNN hoặc classic)
+  perception/         detector.py (YOLO11s+ByteTrack, màu đèn), geometry.py (distance/TTC/oncoming), lanes.py (YOLOP CNN hoặc classic),
+                      depth.py (Depth-Anything thay khoảng cách pinhole, căn scale theo mặt đường; tắt mặc định)
   reasoning/          prompts.py, parser.py (JSON chịu lỗi), vlm.py (transformers, 4-bit, LoRA)
   control/            safety.py (safety gate, AEB/FCW hysteresis), controller.py, golden.py (đọc/replay golden vectors)
   pipeline.py         dual-rate pipeline, VLM sync/async
@@ -231,9 +232,33 @@ Hold/hysteresis của AEB kéo dài các phát hiện sai của perception đơn
   `scripts/v4_data.sh`), thêm frame 0,5 s trước và `lead`; nhãn/split giữ qua overlay. Model 2 frame v4:
   `scripts/pipeline_v4.sh`.
 
+## Cập nhật 10/10/2026 (phiên cloud, **chưa chạy trên GPU**): Depth-Anything thay khoảng cách pinhole
+
+Khoảng cách từ chiều cao bbox là nguồn nhiễu lớn nhất của perception (vài % mỗi frame, gấp đôi khi YOLO đổi
+car↔truck, ước lượng xa hơn thật với bbox bị cắt). `perception/depth.py` chạy một mạng depth dày (Depth-Anything V2,
+đúng model Qualcomm AI Hub phát hành dưới tên `depth_anything_v2`) và lấy giá trị bên trong từng bbox:
+
+- Model gốc chỉ cho **inverse depth tương đối** (`1/d = scale·value + shift`). Scale/shift được khôi phục mỗi frame bằng
+  hồi quy robust trên các **anchor có khoảng cách đã biết**: điểm mặt đường phía trước xe (hình học mặt phẳng + chiều
+  cao camera, cùng công thức đã dùng cho bbox bị cắt) và bbox xe nguyên vẹn với khoảng cách pinhole. Fit được làm mượt
+  theo thời gian; frame không fit được giữ khoảng cách pinhole. Checkpoint metric (`...-Metric-Outdoor-...`) bỏ qua
+  bước này (`output_kind: metric_depth`).
+- Hợp nhất trong `MotionEstimator`: `perception.depth.mode: replace` (bbox bị cắt vẫn không bao giờ xa hơn cận trên
+  pinhole) hoặc `min` (không bao giờ xa hơn pinhole → phanh không muộn hơn trước). Nguồn khoảng cách ghi ở
+  `Detection.distance_source`, HUD thêm chữ `D` sau khoảng cách.
+- Backend `transformers` (checkpoint HF, `python scripts/fetch_hf.py depth-anything/Depth-Anything-V2-Small-hf`,
+  Apache-2.0; Base/Large là CC-BY-NC-4.0) hoặc `onnx` (file shape tĩnh, ví dụ export từ AI Hub). Mọi phần sau mạng là
+  numpy thuần nên `scripts/gate_replay.py` phát lại được trên CPU.
+- Đo false AEB không cần chạy lại detector: `python scripts/gate_replay.py depth outputs/gate_replay` bổ sung thống kê
+  depth vào capture sẵn có (đọc lại video), rồi
+  `python scripts/gate_replay.py replay outputs/gate_replay --variant pinhole:perception.depth.mode=off --variant depth:perception.depth.mode=replace --variant depth_min:perception.depth.mode=min`.
+  Chỉ bật mặc định (`perception.depth.enabled: true`) nếu AEB sai trên clip bình thường giảm mà AEB trong cửa sổ nguy
+  hiểm Nexar không giảm.
+
 ## Giới hạn và lưu ý
 
 - **Không dùng để điều khiển xe thật.** Đây là prototype R&D.
 - Khoảng cách được ước lượng từ 1 camera (chiều cao bbox + FOV), nên nhiễu. Cần chỉnh `camera.hfov_deg` theo camera thật.
+  `perception.depth` (Depth-Anything) là lựa chọn thay thế, chưa được đo trên dữ liệu thật.
 - Với video, tốc độ ego lấy từ `--ego-speed` (không có CAN bus).
 - **License:** Qwen2.5-VL-3B dùng Qwen Research License (phi thương mại). Ultralytics YOLO dùng AGPL-3.0. Trước khi thương mại hóa, xem mục 3–4 của tài liệu deploy.

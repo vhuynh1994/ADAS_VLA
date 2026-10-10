@@ -5,9 +5,13 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from ..config import CameraConfig
+from ..config import CameraConfig, DepthConfig
 from ..types import VEHICLE_CLASSES, Detection, LaneInfo
+
+if TYPE_CHECKING:  # perception.depth imports this module; the runtime import below is lazy
+    from .depth import DepthFrame
 
 # Typical real-world sizes (m) used for pinhole distance estimation.
 REAL_HEIGHT_M = {
@@ -17,6 +21,8 @@ REAL_HEIGHT_M = {
 REAL_WIDTH_M = {"person": 0.5, "bicycle": 0.6, "car": 1.8, "motorcycle": 0.8, "bus": 2.5, "truck": 2.5}
 NOT_OBSTACLES = ("traffic light", "stop sign")
 MIN_TOP_FRACTION = 0.5  # a clipped close object's visible top is at least this fraction of its class height
+CLIP_MARGIN = 0.03  # a box ending within this fraction of the frame height from the bottom edge is "clipped"
+BOX_ANCHOR_RANGE_M = (5.0, 80.0)  # pinhole distances of full vehicle boxes usable as depth-alignment anchors
 
 
 def focal_length_px(image_width: int, hfov_deg: float) -> float:
@@ -30,8 +36,13 @@ def ground_distance(y: float, focal_px: float, frame_height: int, cam_height_m: 
     return focal_px * cam_height_m / dy if dy > 1 else None
 
 
+def is_clipped(det: Detection, frame_height: int, clip_margin: float = CLIP_MARGIN) -> bool:
+    """Does the box touch the bottom edge of the frame (object partly outside the image)?"""
+    return det.box[3] >= (1 - clip_margin) * frame_height
+
+
 def estimate_distance(det: Detection, focal_px: float, frame_height: int | None = None,
-                      cam_height_m: float | None = None, clip_margin: float = 0.03,
+                      cam_height_m: float | None = None, clip_margin: float = CLIP_MARGIN,
                       cls_name: str | None = None) -> float | None:
     """Pinhole distance from the box height.
 
@@ -50,7 +61,7 @@ def estimate_distance(det: Detection, focal_px: float, frame_height: int | None 
     if real_h is None or h_px < 2:
         return None
     dist = focal_px * real_h / h_px
-    if frame_height is None or y2 < (1 - clip_margin) * frame_height:
+    if frame_height is None or not is_clipped(det, frame_height, clip_margin):
         return dist
     close = dist
     real_w = REAL_WIDTH_M.get(cls_name)
@@ -123,14 +134,23 @@ class MotionEstimator:
     and drops as soon as the vehicle is in the ego path (it is then the lead object). A vehicle pulling away
     faster than `cut_in_max_pull_away_mps` is not flagged: merging ahead of us while faster than us is not a
     collision threat, and on curves an overtaking car in the next lane can look like it drifts toward the corridor.
+
+    Depth (optional, `depth` config + a `DepthFrame` per update, see perception/depth.py): the per-box value of a
+    depth network replaces (`mode: replace`) or caps (`mode: min`) the pinhole distance once the map's scale and
+    shift are known from the road anchors and/or full vehicle boxes; a clipped box is never farther than its
+    pinhole upper bound either way. Frames without a reliable alignment keep the pinhole distances.
     """
 
     def __init__(self, camera: CameraConfig, dist_tau_s: float = 0.05, vel_window_s: float = 0.5,
                  vel_min_span_s: float = 0.2, vel_max_se_mps: float = 1.5, vel_max_rel_se: float = 0.3,
                  max_track_age_s: float = 2.0, oncoming_margin_mps: float = 3.0,
                  cut_in_rate: float = 0.25, cut_in_max_distance_m: float = 30.0, cut_in_window_s: float = 0.6,
-                 cut_in_max_pull_away_mps: float = 1.0):
+                 cut_in_max_pull_away_mps: float = 1.0, depth: DepthConfig | None = None):
+        from .depth import DepthAligner
+
         self.camera = camera
+        self.depth_cfg = depth
+        self._aligner = DepthAligner(depth) if depth is not None else None
         self.dist_tau_s = dist_tau_s
         self.vel_window_s = vel_window_s
         self.vel_min_span_s = vel_min_span_s
@@ -148,6 +168,8 @@ class MotionEstimator:
     def reset(self) -> None:
         self._tracks.clear()
         self._votes.clear()
+        if self._aligner is not None:
+            self._aligner.reset()
 
     def _track_class(self, det: Detection) -> str:
         if det.track_id is None:
@@ -157,11 +179,16 @@ class MotionEstimator:
         return max(votes, key=votes.get)
 
     def update(self, detections: list[Detection], t: float, lanes: LaneInfo,
-               width: int, height: int, ego_speed_mps: float | None = None) -> None:
+               width: int, height: int, ego_speed_mps: float | None = None,
+               depth: DepthFrame | None = None) -> None:
         f_px = focal_length_px(width, self.camera.hfov_deg)
-        for det in detections:
-            det.distance_m = estimate_distance(det, f_px, height, self.camera.mount_height_m,
-                                               cls_name=self._track_class(det))
+        pinhole = [estimate_distance(det, f_px, height, self.camera.mount_height_m, cls_name=self._track_class(det))
+                   for det in detections]
+        refined = self._depth_distances(detections, pinhole, depth, height, t) if depth is not None else None
+        for i, det in enumerate(detections):
+            det.distance_m, det.distance_source = pinhole[i], "pinhole"
+            if refined is not None and refined[i] is not None:
+                det.distance_m, det.distance_source = refined[i], "depth"
             x1, _, x2, y2 = det.box
             left, right = ego_corridor(y2, lanes, width, height)
             overlap = max(0.0, min(x2, right) - max(x1, left))
@@ -180,6 +207,36 @@ class MotionEstimator:
             del self._tracks[tid]
         for tid in [tid for tid in self._votes if tid not in self._tracks]:
             del self._votes[tid]
+
+    def _depth_distances(self, detections: list[Detection], pinhole: list[float | None], depth: DepthFrame,
+                         height: int, t: float) -> list[float | None] | None:
+        """Depth-based distance per detection (None where unavailable), fused with the pinhole estimate."""
+        cfg = self.depth_cfg
+        if cfg is None or self._aligner is None or cfg.mode == "off" or len(depth.stats) != len(detections):
+            return None
+        if depth.kind == "metric_depth":
+            raw = [v if v is not None and v > 0 else None for v in depth.stats]
+        else:
+            pairs = list(depth.anchors) if "ground" in cfg.anchors else []
+            if "boxes" in cfg.anchors:
+                lo, hi = BOX_ANCHOR_RANGE_M
+                for det, pin, v in zip(detections, pinhole, depth.stats):
+                    if (v is not None and pin is not None and lo <= pin <= hi and det.cls_name in VEHICLE_CLASSES
+                            and not is_clipped(det, height)):
+                        pairs.append((v, 1.0 / pin))
+            alignment = self._aligner.update(pairs, t)
+            if alignment is None:
+                return None
+            raw = [alignment.distance(v) for v in depth.stats]
+        out: list[float | None] = []
+        for det, pin, d in zip(detections, pinhole, raw):
+            if d is None:
+                out.append(None)
+                continue
+            if pin is not None and (cfg.mode == "min" or is_clipped(det, height)):
+                d = min(d, pin)  # never farther than the pinhole bound of a clipped box (or than pinhole, in `min`)
+            out.append(max(d, 1.0))
+        return out
 
     def _update_track(self, det: Detection, t: float, gap: float) -> None:
         if det.track_id is None or det.distance_m is None:

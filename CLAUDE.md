@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (65 tests, must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (81 tests, must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -79,7 +79,36 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   val gives 67.3% / 6.1% / 23.1% -> v4 only moved along v3's trade-off curve (brake weight 2.0), the 2-frame input
   added no measurable information. v3 stays the default; v4 kept in `models/adas-vlm-v4` (needs prev_frame_s 0.5).
 
-## Suggested next steps (owner decides priority)
+## Changes 2026-10-10 (cloud session: code + tests only, NOT yet run on the GPU)
+- `perception/depth.py`: Depth-Anything distance refinement. `DepthModel` (backends `transformers` = HF checkpoint,
+  `onnx` = static-shape export such as Qualcomm AI Hub `depth_anything_v2`), `DepthFrame` (per-detection map statistic
+  + road anchors, picklable), robust scale/shift fit `1/d = scale*value + shift` on anchors with known distance
+  (road rows via `ground_distance`, full vehicle boxes via pinhole), `DepthAligner` (EMA over time, keeps the last
+  good fit `align_max_age_s`). Fusion in `MotionEstimator.update(..., depth=DepthFrame)`: `mode: replace` (a clipped
+  box is still capped by its pinhole upper bound) | `min` | `off`; frames without a reliable fit keep pinhole.
+  `Detection.distance_source` = pinhole | depth; HUD appends `D`. Config `perception.depth.*` (`DepthConfig`,
+  **enabled: false** by default); pipeline runs the model in `perceive()` when enabled.
+- `scripts/gate_replay.py`: `capture --set perception.depth.enabled=true` stores depth statistics per frame; new
+  `depth DATA` subcommand adds them to existing captures (videos re-read, detector not re-run); `replay` uses them
+  whenever `perception.depth.mode != off` (`enabled` only controls model loading).
+- Tests: `tests/test_depth.py` (16, synthetic maps, CPU only).
+
+### To validate on the owner's PC
+1. `python scripts/fetch_hf.py depth-anything/Depth-Anything-V2-Small-hf` (Apache-2.0; ~100 MB), `pytest -q`.
+2. `adas-vla run --no-vlm --set perception.depth.enabled=true --source <normal clip> --output outputs/depth.mp4`:
+   check the `D` distances on the HUD against the pinhole ones (same clip without the flag) and the perception ms.
+3. `python scripts/gate_replay.py depth outputs/gate_replay` then
+   `python scripts/gate_replay.py replay outputs/gate_replay --variant pinhole:perception.depth.mode=off
+   --variant depth:perception.depth.mode=replace --variant depth_min:perception.depth.mode=min`. Keep depth only if
+   `aeb_time_%` / `aeb_per_min` on normal clips drop without `nexar_aeb_%` dropping (control window as reference);
+   `min` is the conservative variant. Then sweep `ground_rows`, `anchors` (`[ground]` vs `[ground, boxes]`),
+   `max_rel_rmse`, `input_size` (644x364 vs 518x518) the same way; the alignment quality can be inspected by logging
+   `MotionEstimator._aligner.alignment` (scale, shift, n, rel_rmse).
+4. If it wins: set `perception.depth.enabled: true` in `configs/default.yaml`, rebuild `data/ds_v3` (the stored
+   `lead` distances change), re-run `scripts/safety_golden.py --check` (gate unchanged, must stay up to date).
+5. Deployment path: export the same checkpoint from AI Hub (`depth_anything_v2`, ONNX) and run it through
+   `perception.depth.backend: onnx` (input shape read from the graph; `onnx_normalize` per export) before the HTP step.
+
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.
 3. Expert-reviewed val labels (current val labels were reviewed by an AI, see `docs/DATASET.md`).

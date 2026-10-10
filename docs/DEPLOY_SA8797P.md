@@ -37,8 +37,9 @@ PyTorch / HF model
 |---|---|---|---|
 | Detector `perception/detector.py` | HTP | ★ Dễ | `adas-vla export` → ONNX static `[1,3,384,640]` + calibration → qairt-converter/quantizer → context binary. **License:** Ultralytics là AGPL-3.0 |
 | Lane `perception/lanes.py` (YOLOP) | HTP | ★ Dễ | ONNX có sẵn (MIT); chỉ giữ 2 head segmentation |
+| Depth `perception/depth.py` (Depth-Anything-V2-Small) | HTP | ★★ Trung bình | AI Hub phát hành bản export sẵn (`depth_anything_v2`); backend `onnx` của project nhận file shape tĩnh (input đọc từ graph). Phần căn scale/shift + hợp nhất là numpy, port C++ cùng geometry. **License:** Small Apache-2.0, Base/Large/Giant CC-BY-NC-4.0 |
 | Tracker (ByteTrack) | CPU | ★ Dễ | Port C++ |
-| Geometry / TTC `perception/geometry.py` | CPU | ★ Dễ | Port C++; nên thay khoảng cách mono bằng depth/radar fusion |
+| Geometry / TTC `perception/geometry.py` | CPU | ★ Dễ | Port C++; khoảng cách mono có thể thay bằng Depth-Anything (dòng trên, chưa đo) hoặc radar fusion |
 | Safety gate `control/safety.py` | CPU / safety island | ★ Dễ (logic), cần đạt ASIL | Viết lại C++ deterministic; bản C++ phải tái tạo đúng `tests/data/safety_golden.json` (206 kịch bản, gồm xác nhận/hold/hysteresis của AEB/FCW; định dạng mô tả trong `control/golden.py`) |
 | Controller `control/controller.py` | CPU / MCU | ★ Dễ | Thay P-controller bằng PID/MPC đã hiệu chỉnh |
 | VLM `reasoning/vlm.py` | HTP (+ CPU ghép embedding) | ★★★ Khó | Tách vision encoder và LM, lượng tử hóa W4A16, KV cache, cố định 560×308 |
@@ -73,6 +74,18 @@ Hướng mở rộng: thêm action head nhỏ (MLP) xuất quỹ đạo từ hid
 - [ ] Dữ liệu calibration lượng tử hóa lấy từ kịch bản ADAS thật (đêm, mưa, đô thị, cao tốc)
 - [ ] So sánh lại `adas-vla eval` giữa bản PC và bản lượng tử hóa: accuracy, **under-braking**, latency, bộ nhớ
 
+## 5b. Qualcomm AI Hub: những gì đã có công khai cho project này (kiểm tra 10/2026)
+
+- Catalog AI Hub (repo `quic/ai-hub-models`, BSD-3) liệt kê các nền tảng automotive **SA7255P, SA8295P, SA8775P**;
+  SA8797P (Ride Elite) chưa có trong danh sách công khai. Một số trang model có device proxy `SA8650 (Proxy)`
+  (chipset SA8650P); có asset sẵn cho model nào thì phải xem trang model đó hoặc `qai-hub list-devices` rồi compile.
+- Model trùng với project: detector `yolov11_det`; depth `depth_anything_v2` / `depth_anything_v3`; VLM
+  `qwen2_5_vl_7b_instruct`, `qwen3_vl_2b_instruct` (và Qwen3-VL 4B/8B trên Hugging Face `qualcomm/*`, triển khai
+  qua GenieX; trang 4B/8B ghi Genie sẽ ngừng hỗ trợ). Không có lane detection; nhóm "Driver Assistance"
+  (BEVFormer, BEVDet, CVT, CenterPoint...) là model BEV nhiều camera / lidar, không dùng được cho một dashcam.
+- Lệnh export mẫu của AI Hub: `qai-hub-models export <model> --target-runtime <tflite|qnn|onnx> --precision w8a8
+  --device "<tên device>"`.
+
 ## 6. Cần xác nhận với Qualcomm
 
 1. Kiến trúc HTP, số core NPU và giới hạn bộ nhớ mỗi process trên SA8797P.
@@ -88,4 +101,7 @@ Hướng mở rộng: thêm action head nhỏ (MLP) xuất quỹ đạo từ hid
 - Ultralytics — YOLO export to QNN: https://docs.ultralytics.com/integrations/qnn
 - ONNX Runtime — QNN Execution Provider: https://onnxruntime.ai/docs/execution-providers/QNN-ExecutionProvider.html
 - Snapdragon Ride Elite: https://www.qualcomm.com/automotive/products/elite
+- Qualcomm AI Hub model pages: https://aihub.qualcomm.com/models/depth_anything_v2 , https://aihub.qualcomm.com/models/yolov11_det ,
+  https://aihub.qualcomm.com/models/qwen3_vl_2b_instruct ; GenieX: https://geniex.aihub.qualcomm.com/
+- Depth-Anything V2 (license theo kích cỡ model): https://github.com/DepthAnything/Depth-Anything-V2
 - Model cards: Qwen2.5-VL, Qwen3-VL, Qwen3.5, Qwen3-4B-Instruct-2507, Qwen-Drive-1.0-4B, NVIDIA Alpamayo (Hugging Face)
