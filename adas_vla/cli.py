@@ -50,6 +50,9 @@ def cmd_run(args) -> None:
     ego = EgoState(speed_kmh=cfg.ego_speed_kmh)
     n, t_start = 0, time.perf_counter()
     live = args.source.isdigit() or "://" in args.source  # reading a live source mostly waits for the next frame
+    window = "ADAS-VLA"
+    if args.show:  # resizable; closing it (X) ends the run like q / Esc
+        cv2.namedWindow(window, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
     timings, ages = [], []
     frames = iter_frames(args.source, args.max_frames)
     try:
@@ -64,7 +67,7 @@ def cmd_run(args) -> None:
                                read_ms=None if live else (capture_s - t_read) * 1000)
             timings.append(res.timing)
             ages.append(res.vlm_age_wall_s)
-            vis = hud.draw(frame, res)
+            vis = hud.draw(frame, res, max_width=args.display_width)
             if args.output:
                 if writer is None:
                     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -75,8 +78,10 @@ def cmd_run(args) -> None:
             if log_file:
                 log_file.write(json.dumps(frame_record(res), ensure_ascii=False) + "\n")
             if args.show:
-                cv2.imshow("ADAS-VLA", vis)
-                if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                if n == 0:
+                    cv2.resizeWindow(window, vis.shape[1], vis.shape[0])
+                cv2.imshow(window, vis)
+                if cv2.waitKey(1) & 0xFF in (ord("q"), 27) or cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
                     break
             n += 1
             if idx % 30 == 0:
@@ -384,7 +389,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--source", required=True, help="video file, camera index (0), RTSP URL or image folder")
     p.add_argument("--output", help="write annotated video (mp4)")
     p.add_argument("--log", help="write per-frame decisions as JSONL")
-    p.add_argument("--show", action="store_true", help="display a window (q to quit)")
+    p.add_argument("--show", action="store_true", help="display a window (q, Esc or closing it quits)")
+    p.add_argument("--display-width", type=int, default=1280,
+                   help="draw the HUD on frames downscaled to this width (window and --output), 0 = full size")
     p.add_argument("--max-frames", type=int)
     p.add_argument("--vlm-mode", choices=["sync", "async", "process"])
     p.add_argument("--vlm-every", type=int, help="run the VLM every N frames")

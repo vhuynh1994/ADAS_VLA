@@ -23,6 +23,10 @@ adas-vla run --no-vlm --set perception.backend=board --source data/samples/highw
 bash board/board_server.sh stop                         # nhớ dừng: board dùng chung, server giữ HTP ở burst
 ```
 
+Xem trực tiếp: `bash board/demo.sh <video>` mở cửa sổ (qua `systemd-run`, unit `adas-vla-demo`); dừng bằng
+`q` / Esc / đóng cửa sổ, hoặc `bash board/demo.sh stop`. HUD vẽ trên frame thu về `--display-width` (mặc định 1280),
+nên video 4K vẫn vừa màn hình; `--display-width 0` = kích thước gốc.
+
 `$DIR` trên board phải có `lib/` (libQnnHtp.so, libQnnHtpV73Stub.so, libQnnSystem.so cho aarch64-qnx800) và
 `models/` (`yolo11s_w8a8.bin`, `yolop_lane_w8a16_o3v8.bin`); đổi bằng biến `DIR`, `DET`, `LANE`, `PORT` (mặc định
 50052). Từ terminal VS Code (snap) mở cửa sổ qua

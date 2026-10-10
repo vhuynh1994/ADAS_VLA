@@ -33,15 +33,23 @@ class HUD:
     def __init__(self):
         self._fonts = {s: _font(s) for s in (14, 16, 20, 28)}
 
-    def draw(self, frame: np.ndarray, res: FrameResult, copilot: str | None = None) -> np.ndarray:
-        img = frame.copy()
+    def draw(self, frame: np.ndarray, res: FrameResult, copilot: str | None = None,
+             max_width: int | None = None) -> np.ndarray:
+        """max_width: frames wider than this (e.g. 4K) are downscaled first; boxes and lanes are scaled to match and
+        the panel / text keep their pixel size, so the HUD reads the same at any input resolution."""
+        k = 1.0
+        if max_width and frame.shape[1] > max_width:
+            k = max_width / frame.shape[1]
+            img = cv2.resize(frame, (max_width, round(frame.shape[0] * k)), interpolation=cv2.INTER_AREA)
+        else:
+            img = frame.copy()
         h, w = img.shape[:2]
         texts: list[tuple[tuple[int, int], str, int, tuple[int, int, int]]] = []  # (xy, text, size, BGR)
 
-        self._draw_lanes(img, res.context.lanes, h)
+        self._draw_lanes(img, res.context.lanes, frame.shape[0], k)
 
         for d in res.context.detections:
-            x1, y1, x2, y2 = (int(v) for v in d.box)
+            x1, y1, x2, y2 = (int(v * k) for v in d.box)
             critical = d.threatening and d.ttc_s is not None and d.ttc_s < 2.7
             color = (0, 0, 255) if critical else (0, 165, 255) if d.threatening else (80, 200, 80)
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
@@ -103,21 +111,21 @@ class HUD:
         return self._render_text(img, texts)
 
     @staticmethod
-    def _draw_lanes(img: np.ndarray, lanes: LaneInfo, h: int) -> None:
+    def _draw_lanes(img: np.ndarray, lanes: LaneInfo, h: int, k: float = 1.0) -> None:
+        """Lane fits are in frame pixels (frame height h); k scales them to the drawn image."""
+        def pt(fit, y):
+            return int(lanes.x_at(fit, y) * k), int(y * k)
+
         if lanes.valid:
-            yt, yb = int(lanes.y_top), h
-            pts = np.array([
-                (int(lanes.x_at(lanes.left_fit, yb)), yb), (int(lanes.x_at(lanes.left_fit, yt)), yt),
-                (int(lanes.x_at(lanes.right_fit, yt)), yt), (int(lanes.x_at(lanes.right_fit, yb)), yb),
-            ], dtype=np.int32)
+            yt, yb = lanes.y_top, h
+            pts = np.array([pt(lanes.left_fit, yb), pt(lanes.left_fit, yt), pt(lanes.right_fit, yt),
+                            pt(lanes.right_fit, yb)], dtype=np.int32)
             overlay = img.copy()
             cv2.fillPoly(overlay, [pts], (0, 180, 0))
             cv2.addWeighted(overlay, 0.25, img, 0.75, 0, img)
         for fit in (lanes.left_fit, lanes.right_fit):
             if fit is not None:
-                p1 = (int(lanes.x_at(fit, lanes.y_top)), int(lanes.y_top))
-                p2 = (int(lanes.x_at(fit, h)), h)
-                cv2.line(img, p1, p2, (0, 255, 255), 3)
+                cv2.line(img, pt(fit, lanes.y_top), pt(fit, h), (0, 255, 255), 3)
 
     @staticmethod
     def _bar(img, x, y, value, color, label, texts):
