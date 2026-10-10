@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (79 tests, must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (100 tests with torch; without it `tests/test_merge.py` is skipped as one item: 96 passed, 1 skipped; must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -103,6 +103,59 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   round(x/scale)-offset differs on ~0.3% of 16-bit inputs). `tests/test_board.py` covers the client without a board.
 - Fixed a latent bug: `reset()` in async mode now drops the previous video's VLM result (timeline restarts at 0, so
   the old decision had a negative age and passed the gate's freshness check).
+
+## Changes 2026-10-10 (cloud session: code + tests only, NOT yet run on the GPU)
+- `perception/depth.py`: Depth-Anything distance refinement. `DepthModel` (backends `transformers` = HF checkpoint,
+  `onnx` = static-shape export such as Qualcomm AI Hub `depth_anything_v2`), `DepthFrame` (per-detection map statistic
+  + road anchors, picklable), robust scale/shift fit `1/d = scale*value + shift` on anchors with known distance
+  (road rows via `ground_distance`, full vehicle boxes via pinhole), `DepthAligner` (EMA over time, keeps the last
+  good fit `align_max_age_s`). Fusion in `MotionEstimator.update(..., depth=DepthFrame)`: `mode: replace` (a clipped
+  box is still capped by its pinhole upper bound) | `min` | `off`; frames without a reliable fit keep pinhole.
+  `Detection.distance_source` = pinhole | depth; HUD appends `D`. Config `perception.depth.*` (`DepthConfig`,
+  **enabled: false** by default); pipeline runs the model in `perceive()` when enabled.
+- `scripts/gate_replay.py`: `capture --set perception.depth.enabled=true` stores depth statistics per frame; new
+  `depth DATA` subcommand adds them to existing captures (videos re-read, detector not re-run); `replay` uses them
+  whenever `perception.depth.mode != off` (`enabled` only controls model loading).
+- Tests: `tests/test_depth.py` (16, synthetic maps, CPU only).
+
+### To validate on the owner's PC
+1. `python scripts/fetch_hf.py depth-anything/Depth-Anything-V2-Small-hf` (Apache-2.0; ~100 MB), `pytest -q`.
+2. `adas-vla run --no-vlm --set perception.depth.enabled=true --source <normal clip> --output outputs/depth.mp4`:
+   check the `D` distances on the HUD against the pinhole ones (same clip without the flag) and the perception ms.
+3. `python scripts/gate_replay.py depth outputs/gate_replay` then
+   `python scripts/gate_replay.py replay outputs/gate_replay --variant pinhole:perception.depth.mode=off
+   --variant depth:perception.depth.mode=replace --variant depth_min:perception.depth.mode=min`. Keep depth only if
+   `aeb_time_%` / `aeb_per_min` on normal clips drop without `nexar_aeb_%` dropping (control window as reference);
+   `min` is the conservative variant. Then sweep `ground_rows`, `anchors` (`[ground]` vs `[ground, boxes]`),
+   `max_rel_rmse`, `input_size` (644x364 vs 518x518) the same way; the alignment quality can be inspected by logging
+   `MotionEstimator._aligner.alignment` (scale, shift, n, rel_rmse).
+4. If it wins: set `perception.depth.enabled: true` in `configs/default.yaml`, rebuild `data/ds_v3` (the stored
+   `lead` distances change), re-run `scripts/safety_golden.py --check` (gate unchanged, must stay up to date).
+5. Deployment path: export the same checkpoint from AI Hub (`depth_anything_v2`, ONNX) and run it through
+   `perception.depth.backend: onnx` (input shape read from the graph; `onnx_normalize` per export) before the HTP step.
+
+## Round 5 plan (2026-10-10, cloud session: prepared, NOT yet run): base model Qwen2.5-VL-7B-Instruct
+Owner's decision. Why: the 7B is the Qwen2.5-VL size Qualcomm AI Hub ships optimized (`qwen2_5_vl_7b_instruct`,
+Genie w4a16; SA8650P / SA8775P / SA8255P ADP listed) and it is Apache-2.0 (the 3B is Qwen Research, non-commercial).
+Same architecture as the 3B: dataset, prompts, `encode_messages`, `LORA_TARGET_REGEX`, 2-frame input and the
+first-token `ActionPolicy` carry over; only the fine-tune is redone.
+- `configs/vlm_7b.yaml` (base profile; the 7B teacher weights `models/Qwen--Qwen2.5-VL-7B-Instruct` may already be on
+  the PC from `teacher_7b.yaml`). `scripts/pipeline_v5_7b.sh`: 20-step smoke (peak VRAM + ETA) -> train 3 epochs with
+  the v3 recipe (class share 0.55, lr 2e-4, brake weight 1.0) -> shard-wise merge -> eval v5 vs v3 on ds_v3 (val +
+  Nexar; the v3 jsonl from the v4 pipeline are reused) -> sweep -> `run` demo + `explain` -> HTML reports.
+- `adas-vla train --optimizer paged_adamw_8bit --max-steps N`: bitsandbytes 8-bit paged optimizer; an N-step run
+  prints `peak_mem` and the ETA of the full run, then stops (`training/finetune.py: build_optimizer`).
+- `adas-vla merge` now merges **shard by shard** (`training/merge.py`: `W + alpha/r * B @ A` on each safetensors
+  shard, keys of the Qwen2.5-VL checkpoint renames resolved, config/tokenizer/processor files copied); the old
+  full-model path (16 GB RAM for the 7B in bf16) is `--full`. `tests/test_merge.py` needs torch + safetensors
+  (skipped in the minimal CI environment, runs on the PC).
+- Expectations / risks: QLoRA 7B peak VRAM ~6.5-7.5 GB on the 8 GB card (the 3B peaked 4.7 GB). If the smoke OOMs:
+  `V5_EXTRA="--set vlm.quantize_vision=true"` for ALL 7B stages (train and eval must see the same ViT) and
+  `TRAIN_EXTRA="--optimizer paged_adamw_8bit --lora-r 8"`. Step time ~2.5x the 3B (read the ETA of the smoke before
+  committing the GPU overnight). PC eval latency ~2x v3 (the <= 1 s target is for the NPU, measure on the board).
+  The demo runs `run` then `explain` separately: the 7B VLM and the Qwen3-4B LLM do not fit together in 8 GB.
+- Decision rule unchanged: v5 becomes the default (`configs/default.yaml: vlm.model_id`) only if it wins on
+  under-braking first on the fixed val split, then on joint accuracy; keep the Nexar crash test as the second table.
 
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.

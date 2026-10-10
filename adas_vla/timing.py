@@ -23,7 +23,7 @@ import time
 from contextlib import contextmanager
 
 SUB_STAGES = ("det_pre", "det_model", "det_post", "det_track", "lane_pre", "lane_model", "lane_post")
-STAGES = ("read", "detector", "lanes", "geometry", "vlm", "gate", "control", "frame", "e2e")
+STAGES = ("read", "detector", "lanes", "depth", "geometry", "vlm", "gate", "control", "frame", "e2e")
 
 
 class StageTimer:

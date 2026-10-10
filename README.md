@@ -128,7 +128,8 @@ adas-vla export --out outputs/deploy --qnn-arch 79   # thêm bản Ultralytics Q
 adas_vla/
   types.py            Detection, LaneInfo, SceneContext, DrivingDecision, ControlCommand, Alert
   config.py           dataclass config + YAML + --set overrides
-  perception/         detector.py (YOLO11s+ByteTrack, màu đèn), geometry.py (distance/TTC/oncoming), lanes.py (YOLOP CNN hoặc classic)
+  perception/         detector.py (YOLO11s+ByteTrack, màu đèn), geometry.py (distance/TTC/oncoming), lanes.py (YOLOP CNN hoặc classic),
+                      depth.py (Depth-Anything thay khoảng cách pinhole, căn scale theo mặt đường; tắt mặc định)
   reasoning/          prompts.py, parser.py (JSON chịu lỗi), vlm.py (transformers, 4-bit, LoRA)
   control/            safety.py (safety gate, AEB/FCW hysteresis), controller.py, golden.py (đọc/replay golden vectors)
   pipeline.py         dual-rate pipeline, VLM sync / async (thread) / process
@@ -143,7 +144,9 @@ configs/              default.yaml (Qwen2.5-VL-3B + Qwen3-4B, 4-bit) · smoke.ya
 scripts/              download_samples.sh · download_models.sh · fetch_hf.py · sweep_policy.py · safety_golden.py
 tests/data/safety_golden.json   kịch bản → quyết định mong đợi của safety gate (test tương đương cho bản C++)
 .github/workflows/ci.yml        pytest trên Python 3.10 + 3.12, không cần GPU
-docs/DEPLOY_SA8797P.md · docs/LATENCY_BUDGET.md (ngân sách B0 + số đo latency trên PC)
+docs/DEPLOY_SA8797P.md          đường deploy lên Snapdragon Ride Elite (toolchain công khai)
+docs/AI_DEPLOYMENT.md           quy trình deploy B0–B9, DoD + công thức đo, phân loại tối ưu, realtime hard/firm/soft
+docs/LATENCY_BUDGET.md         ngân sách B0 + số đo latency trên PC và trên HTP SA8650P
 ```
 
 ## Kết quả đã kiểm chứng trên PC này (RTX 4060 Laptop 8 GB, 27/09/2026)
@@ -267,9 +270,48 @@ cuối run in p50/p95/p99/max, DMR so với deadline `budget.deadlines_ms`.
 - Sửa lỗi tiềm ẩn: `reset()` ở mode async bây giờ bỏ cả quyết định VLM đang chạy dở của video trước (trước đây timeline video mới
   bắt đầu lại từ 0 nên quyết định cũ có tuổi âm và vẫn được gate dùng).
 
+## Cập nhật 10/10/2026 (phiên cloud, **chưa chạy trên GPU**): Depth-Anything thay khoảng cách pinhole
+
+Khoảng cách từ chiều cao bbox là nguồn nhiễu lớn nhất của perception (vài % mỗi frame, gấp đôi khi YOLO đổi
+car↔truck, ước lượng xa hơn thật với bbox bị cắt). `perception/depth.py` chạy một mạng depth dày (Depth-Anything V2,
+đúng model Qualcomm AI Hub phát hành dưới tên `depth_anything_v2`) và lấy giá trị bên trong từng bbox:
+
+- Model gốc chỉ cho **inverse depth tương đối** (`1/d = scale·value + shift`). Scale/shift được khôi phục mỗi frame bằng
+  hồi quy robust trên các **anchor có khoảng cách đã biết**: điểm mặt đường phía trước xe (hình học mặt phẳng + chiều
+  cao camera, cùng công thức đã dùng cho bbox bị cắt) và bbox xe nguyên vẹn với khoảng cách pinhole. Fit được làm mượt
+  theo thời gian; frame không fit được giữ khoảng cách pinhole. Checkpoint metric (`...-Metric-Outdoor-...`) bỏ qua
+  bước này (`output_kind: metric_depth`).
+- Hợp nhất trong `MotionEstimator`: `perception.depth.mode: replace` (bbox bị cắt vẫn không bao giờ xa hơn cận trên
+  pinhole) hoặc `min` (không bao giờ xa hơn pinhole → phanh không muộn hơn trước). Nguồn khoảng cách ghi ở
+  `Detection.distance_source`, HUD thêm chữ `D` sau khoảng cách.
+- Backend `transformers` (checkpoint HF, `python scripts/fetch_hf.py depth-anything/Depth-Anything-V2-Small-hf`,
+  Apache-2.0; Base/Large là CC-BY-NC-4.0) hoặc `onnx` (file shape tĩnh, ví dụ export từ AI Hub). Mọi phần sau mạng là
+  numpy thuần nên `scripts/gate_replay.py` phát lại được trên CPU.
+- Đo false AEB không cần chạy lại detector: `python scripts/gate_replay.py depth outputs/gate_replay` bổ sung thống kê
+  depth vào capture sẵn có (đọc lại video), rồi
+  `python scripts/gate_replay.py replay outputs/gate_replay --variant pinhole:perception.depth.mode=off --variant depth:perception.depth.mode=replace --variant depth_min:perception.depth.mode=min`.
+  Chỉ bật mặc định (`perception.depth.enabled: true`) nếu AEB sai trên clip bình thường giảm mà AEB trong cửa sổ nguy
+  hiểm Nexar không giảm.
+
+## Vòng 5 (chuẩn bị, chưa chạy): base model Qwen2.5-VL-7B-Instruct
+
+Qwen2.5-VL-7B là cỡ Qualcomm AI Hub phát hành bản tối ưu (`qwen2_5_vl_7b_instruct`, Genie w4a16, có SA8650P / SA8775P)
+và dùng license Apache-2.0 (bản 3B là Qwen Research, phi thương mại). Cùng kiến trúc với 3B nên dataset, prompt,
+`encode_messages`, regex LoRA, input 2 frame dùng lại nguyên; chỉ fine-tune lại.
+
+- Profile `configs/vlm_7b.yaml`; toàn bộ vòng chạy bằng `scripts/pipeline_v5_7b.sh` (smoke 20 step đo VRAM + ETA →
+  train 3 epoch theo recipe v3 → merge → eval v5 vs v3 trên ds_v3 → sweep → demo → báo cáo HTML).
+- `adas-vla train --optimizer paged_adamw_8bit --max-steps N`: optimizer 8-bit của bitsandbytes cho 7B trên 8 GB;
+  chạy N step rồi dừng, in VRAM đỉnh và ETA của cả vòng.
+- `adas-vla merge` giờ gộp LoRA **theo từng shard** safetensors (`W + α/r·B·A`), không cần nạp cả model 7B bf16
+  (16 GB RAM) vào bộ nhớ; `--full` là đường cũ qua peft.
+- Nếu smoke hết VRAM: `V5_EXTRA="--set vlm.quantize_vision=true"` cho mọi bước 7B và
+  `TRAIN_EXTRA="--optimizer paged_adamw_8bit --lora-r 8"`. v5 chỉ thành mặc định nếu thắng v3 ở under-braking trước.
+
 ## Giới hạn và lưu ý
 
 - **Không dùng để điều khiển xe thật.** Đây là prototype R&D.
 - Khoảng cách được ước lượng từ 1 camera (chiều cao bbox + FOV), nên nhiễu. Cần chỉnh `camera.hfov_deg` theo camera thật.
+  `perception.depth` (Depth-Anything) là lựa chọn thay thế, chưa được đo trên dữ liệu thật.
 - Với video, tốc độ ego lấy từ `--ego-speed` (không có CAN bus).
-- **License:** Qwen2.5-VL-3B dùng Qwen Research License (phi thương mại). Ultralytics YOLO dùng AGPL-3.0. Trước khi thương mại hóa, xem mục 3–4 của tài liệu deploy.
+- **License:** Qwen2.5-VL-3B dùng Qwen Research License (phi thương mại); vòng 5 chuyển sang Qwen2.5-VL-7B (Apache-2.0). Ultralytics YOLO dùng AGPL-3.0. Trước khi thương mại hóa, xem mục 3–4 của tài liệu deploy.

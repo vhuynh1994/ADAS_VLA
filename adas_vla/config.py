@@ -29,6 +29,41 @@ class CameraConfig:
 
 
 @dataclass
+class DepthConfig:
+    """Monocular depth network (Depth-Anything) refining the pinhole distances; see perception/depth.py.
+
+    Off by default: enable it with `perception.depth.enabled: true` once the checkpoint is on the PC
+    (`python scripts/fetch_hf.py depth-anything/Depth-Anything-V2-Small-hf`).
+    """
+
+    enabled: bool = False
+    # replace: the depth distance (a clipped box is still never farther than its pinhole upper bound)
+    # | min: never farther than the pinhole estimate (brakes at least as early as before) | off
+    mode: str = "replace"
+    backend: str = "transformers"  # transformers (HF checkpoint) | onnx (static-shape export, e.g. Qualcomm AI Hub)
+    # Depth-Anything-V2-Small is Apache-2.0; the Base/Large/Giant checkpoints are CC-BY-NC-4.0.
+    model: str = "depth-anything/Depth-Anything-V2-Small-hf"
+    device: str = "cuda:0"
+    dtype: str = "float32"  # float32 | float16 (transformers backend)
+    onnx_path: str = "models/depth_anything_v2/depth_anything_v2.onnx"
+    onnx_providers: list[str] = field(default_factory=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"])
+    onnx_normalize: bool = False  # apply ImageNet mean/std before the graph (AI Hub exports normalise inside)
+    # [width, height] fed to the network: multiples of 14 (ViT-S/14); 644x364 keeps 16:9. An ONNX graph with a
+    # static input shape overrides this.
+    input_size: list[int] = field(default_factory=lambda: [644, 364])
+    # relative_disparity: Depth-Anything base checkpoints (1/d = scale * value + shift, recovered per frame from
+    # road anchors) | metric_depth: ...-Metric-Outdoor-... checkpoints (metres, no alignment)
+    output_kind: str = "relative_disparity"
+    box_percentile: float = 50.0  # percentile (toward the camera) of the map inside the box's inner crop
+    anchors: list[str] = field(default_factory=lambda: ["ground", "boxes"])  # ground: road rows; boxes: full vehicles
+    ground_rows: list[float] = field(default_factory=lambda: [0.62, 0.88])  # image-height fractions of the road rows
+    min_anchors: int = 6
+    max_rel_rmse: float = 0.25  # relative residual of the scale/shift fit above which the frame is not trusted
+    align_tau_s: float = 1.0  # time constant smoothing scale/shift across frames (0 = none)
+    align_max_age_s: float = 1.0  # keep the last good alignment this long when a frame has no reliable fit
+
+
+@dataclass
 class PerceptionConfig:
     detector_model: str = "yolo11s.pt"
     device: str = "cuda:0"
@@ -53,6 +88,7 @@ class PerceptionConfig:
     board_host: str = "192.168.0.73"
     board_port: int = 50052
     board_jpeg_quality: int = 90
+    depth: DepthConfig = field(default_factory=DepthConfig)  # Depth-Anything distance refinement (off by default)
 
 
 @dataclass

@@ -10,6 +10,14 @@ gate and perception parameters can be compared on the same inputs:
   python scripts/gate_replay.py replay outputs/gate_replay \\
       --variant main:safety.aeb_hold_s=0,safety.fcw_hold_s=0,safety.hysteresis=1 --variant current:
 
+Depth (perception/depth.py): `capture --set perception.depth.enabled=true` also stores the Depth-Anything statistics
+of every frame; `depth DATA` adds them to existing captures (re-reads the videos, does not re-run the detector).
+`replay` then compares distance sources on the same frames:
+
+  python scripts/gate_replay.py depth outputs/gate_replay
+  python scripts/gate_replay.py replay outputs/gate_replay --variant pinhole:perception.depth.mode=off \\
+      --variant depth:perception.depth.mode=replace --variant depth_min:perception.depth.mode=min
+
 Ground truth: Nexar videos have human `time_of_alert` / `time_of_event` (before alert - 1.5 s = normal driving,
 alert..event = hazard; `ctrl_*` = the same test on an equally long window of normal driving earlier in the video,
 i.e. what random interventions alone would score); Australian clips use the reviewed per-sample labels of the
@@ -27,6 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from adas_vla.config import Config, load_config  # noqa: E402
+from adas_vla.perception.depth import DepthFrame  # noqa: E402
 from adas_vla.types import Detection, EgoState, LongAction, SceneContext  # noqa: E402
 
 NEXAR = Path("data/raw/nexar-ai--nexar_collision_prediction/train/positive")
@@ -82,9 +91,10 @@ def capture(args) -> None:
     from adas_vla.perception.lanes import build_lane_detector
 
     detector_mod.is_ego_hood = lambda *a, **k: False  # keep every box: the replay applies the current filter
-    cfg = load_config()
+    cfg = load_config(overrides=args.overrides)
     detector = ObjectDetector(cfg.perception)
     lanes = build_lane_detector(cfg.perception.lane_model, cfg.perception.lane_weights, cfg.perception.device)
+    depth = _depth_estimator(cfg) if cfg.perception.depth.enabled else None
     clips = _clips_nexar(args.test_percent, args.nexar) + _clips_au(Path(args.labels), args.au_per_class)
     for spec in args.video:
         path, ego = spec.rsplit(":", 1)
@@ -111,18 +121,75 @@ def capture(args) -> None:
                 ok, frame = cap.read()
                 if ok:
                     h, w = frame.shape[:2]
-                    dets = [(d.cls_name, d.conf, d.box, d.track_id, d.attribute) for d in detector(frame)]
-                    frames.append({"i": idx, "t": t, "dets": dets, "lanes": lanes(frame)})
+                    found = detector(frame)
+                    dets = [(d.cls_name, d.conf, d.box, d.track_id, d.attribute) for d in found]
+                    rec = {"i": idx, "t": t, "dets": dets, "lanes": lanes(frame)}
+                    if depth is not None:
+                        rec["depth"] = depth(frame, found).to_dict()
+                    frames.append(rec)
             if not ok:
                 break
             idx += 1
         cap.release()
         clip.update(fps=fps, width=w, height=h, frames=frames)
+        if depth is not None:
+            clip["depth_model"] = _depth_name(cfg)
         if "samples" in clip:
             clip["samples"] = [(i / fps, a) for i, a in clip["samples"]]
         with dest.open("wb") as f:
             pickle.dump(clip, f)
         print(f"[{k}/{len(clips)}] {clip['name']}: {len(frames)} frames", flush=True)
+
+
+def _depth_estimator(cfg: Config):
+    from adas_vla.perception.depth import DepthEstimator
+
+    return DepthEstimator(cfg.perception.depth, cfg.camera)
+
+
+def _depth_name(cfg: Config) -> str:
+    d = cfg.perception.depth
+    return d.onnx_path if d.backend == "onnx" else d.model
+
+
+def add_depth(args) -> None:
+    """Add the Depth-Anything statistics to existing captures: the videos are read again frame by frame, the stored
+    detections are reused (same boxes, same order), the detector and lanes are not re-run."""
+    import cv2
+
+    cfg = load_config(overrides=args.overrides)
+    cfg.perception.depth.enabled = True
+    depth = _depth_estimator(cfg)
+    paths = sorted(Path(args.data).glob("*.pkl"))
+    for k, path in enumerate(paths, 1):
+        with path.open("rb") as f:
+            clip = pickle.load(f)
+        if not args.force and clip["frames"] and all("depth" in fr for fr in clip["frames"]):
+            print(f"[{k}/{len(paths)}] {clip['name']}: depth already present ({clip.get('depth_model')})", flush=True)
+            continue
+        wanted = {fr["i"]: fr for fr in clip["frames"]}
+        cap = cv2.VideoCapture(clip["video"])
+        idx, last, done = 0, max(wanted, default=-1), 0
+        while idx <= last:
+            if idx in wanted:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                fr = wanted[idx]
+                dets = [Detection(cls_name=c, conf=conf, box=box, track_id=tid, attribute=attr)
+                        for c, conf, box, tid, attr in fr["dets"]]
+                fr["depth"] = depth(frame, dets).to_dict()
+                done += 1
+            elif not cap.grab():
+                break
+            idx += 1
+        cap.release()
+        clip["depth_model"] = _depth_name(cfg)
+        tmp = path.with_suffix(".pkl.tmp")
+        with tmp.open("wb") as f:
+            pickle.dump(clip, f)
+        tmp.replace(path)
+        print(f"[{k}/{len(paths)}] {clip['name']}: depth on {done}/{len(wanted)} frames", flush=True)
 
 
 def run_clip(clip: dict, cfg: Config) -> list[tuple[float, LongAction, set[str]]]:
@@ -132,15 +199,20 @@ def run_clip(clip: dict, cfg: Config) -> list[tuple[float, LongAction, set[str]]
 
     p = cfg.perception
     motion = MotionEstimator(cfg.camera, cut_in_rate=p.cut_in_rate, cut_in_max_distance_m=p.cut_in_max_distance_m,
-                             cut_in_max_pull_away_mps=p.cut_in_max_pull_away_mps, vel_window_s=p.velocity_window_s)
+                             cut_in_max_pull_away_mps=p.cut_in_max_pull_away_mps, vel_window_s=p.velocity_window_s,
+                             depth=p.depth)
     safety = SafetySupervisor(cfg)
     ego = EgoState(clip["ego_kmh"])
     w, h = clip["width"], clip["height"]
     out = []
     for fr in clip["frames"]:
-        dets = [Detection(cls_name=c, conf=conf, box=box, track_id=tid, attribute=attr)
-                for c, conf, box, tid, attr in fr["dets"] if not is_ego_hood(box, w, h)]
-        motion.update(dets, fr["t"], fr["lanes"], w, h, ego.speed_mps)
+        keep = [k for k, (_, _, box, _, _) in enumerate(fr["dets"]) if not is_ego_hood(box, w, h)]
+        dets = [Detection(cls_name=fr["dets"][k][0], conf=fr["dets"][k][1], box=fr["dets"][k][2],
+                          track_id=fr["dets"][k][3], attribute=fr["dets"][k][4]) for k in keep]
+        depth = None
+        if fr.get("depth") is not None and p.depth.mode != "off":
+            depth = DepthFrame.from_dict(fr["depth"]).subset(keep)
+        motion.update(dets, fr["t"], fr["lanes"], w, h, ego.speed_mps, depth=depth)
         ctx = SceneContext(frame_idx=fr["i"], timestamp_s=fr["t"], width=w, height=h, ego=ego,
                            detections=dets, lanes=fr["lanes"])
         decision, alerts = safety.arbitrate(ctx, None)
@@ -213,6 +285,11 @@ def replay(args) -> None:
         with path.open("rb") as f:
             clips.append(pickle.load(f))
     variants = args.variant or ["current:"]
+    with_depth = sum(1 for c in clips for fr in c["frames"] if fr.get("depth") is not None)
+    total = sum(len(c["frames"]) for c in clips)
+    models = sorted({c["depth_model"] for c in clips if c.get("depth_model")})
+    print(f"frames: {total}, with depth statistics: {with_depth} ({', '.join(models) or 'none'}); "
+          "variants with perception.depth.mode != off use them, pinhole elsewhere")
     rows = []
     for spec in variants:
         name, _, sets = spec.partition(":")
@@ -236,11 +313,18 @@ def main() -> None:
     c.add_argument("--labels", default="data/ds_v2/labels.jsonl", help="reviewed labels of the AU clips")
     c.add_argument("--au-per-class", type=int, default=8)
     c.add_argument("--video", action="append", default=[], help="extra normal-driving video: PATH:EGO_KMH")
+    c.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
+                   help="config override, e.g. perception.depth.enabled=true")
+    d = sub.add_parser("depth", help="add Depth-Anything statistics to existing captures (videos re-read)")
+    d.add_argument("data")
+    d.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
+                   help="config override, e.g. perception.depth.model=... or perception.depth.backend=onnx")
+    d.add_argument("--force", action="store_true", help="recompute clips that already have depth statistics")
     r = sub.add_parser("replay", help="re-run geometry + motion + safety gate on captured outputs")
     r.add_argument("data")
     r.add_argument("--variant", action="append", help="NAME:key=value,key=value (config overrides)")
     args = ap.parse_args()
-    capture(args) if args.cmd == "capture" else replay(args)
+    {"capture": capture, "depth": add_depth, "replay": replay}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,23 @@ perception:
   board_host: 192.168.0.73
   board_port: 50052
   board_jpeg_quality: 90
+  depth:                      # Depth-Anything refining the pinhole distances (perception/depth.py); off until measured
+    enabled: false
+    mode: replace             # replace | min (never farther than the pinhole estimate) | off
+    backend: transformers     # transformers (HF checkpoint) | onnx (static export, e.g. AI Hub depth_anything_v2)
+    model: depth-anything/Depth-Anything-V2-Small-hf  # Apache-2.0 (Base/Large: CC-BY-NC-4.0); scripts/fetch_hf.py
+    device: cuda:0
+    dtype: float32
+    onnx_path: models/depth_anything_v2/depth_anything_v2.onnx
+    onnx_normalize: false     # AI Hub exports take RGB in 0..1 and normalise inside the graph
+    input_size: [644, 364]    # [w, h], multiples of 14; a static ONNX input shape overrides it
+    output_kind: relative_disparity  # | metric_depth for the ...-Metric-Outdoor-... checkpoints (metres)
+    anchors: [ground, boxes]  # scale/shift anchors: road rows (flat road + camera height), full vehicle boxes
+    ground_rows: [0.62, 0.88]
+    min_anchors: 6
+    max_rel_rmse: 0.25
+    align_tau_s: 1.0
+    align_max_age_s: 1.0
 
 vlm:
   enabled: true

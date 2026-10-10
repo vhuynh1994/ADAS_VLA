@@ -63,6 +63,7 @@ class Detection:
 
     oncoming: bool = False  # moving toward the ego vehicle (e.g. opposite carriageway)
     cutting_in: bool = False  # adjacent vehicle moving into the ego corridor (see MotionEstimator)
+    distance_source: str = "pinhole"  # pinhole (box size) | depth (Depth-Anything, see perception/depth.py)
 
     @property
     def threatening(self) -> bool:

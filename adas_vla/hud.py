@@ -55,7 +55,7 @@ class HUD:
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
             label = d.cls_name if not d.attribute else f"{d.cls_name}:{d.attribute}"
             if d.distance_m is not None:
-                label += f" {d.distance_m:.0f}m"
+                label += f" {d.distance_m:.0f}m" + ("D" if d.distance_source == "depth" else "")
             if d.ttc_s is not None and d.in_ego_path:
                 label += f" ttc{d.ttc_s:.1f}"
             if d.oncoming:

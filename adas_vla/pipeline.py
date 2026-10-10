@@ -182,7 +182,13 @@ class ADASPipeline:
         self.motion = MotionEstimator(cfg.camera, cut_in_rate=cfg.perception.cut_in_rate,
                                       cut_in_max_distance_m=cfg.perception.cut_in_max_distance_m,
                                       cut_in_max_pull_away_mps=cfg.perception.cut_in_max_pull_away_mps,
-                                      vel_window_s=cfg.perception.velocity_window_s)
+                                      vel_window_s=cfg.perception.velocity_window_s, depth=cfg.perception.depth)
+        self.depth = None
+        if cfg.perception.depth.enabled:
+            from .perception.depth import DepthEstimator
+
+            log.info("Loading depth model %s (%s)...", cfg.perception.depth.model, cfg.perception.depth.backend)
+            self.depth = DepthEstimator(cfg.perception.depth, cfg.camera)
         self.safety = SafetySupervisor(cfg)
         self.controller = Controller(cfg.control)
         self._history = FrameHistory(cfg.vlm.prev_frame_s)  # earlier frame for the 2-frame VLM input
@@ -233,8 +239,12 @@ class ADASPipeline:
                 timer.update({**split, "lane_post": timer.ms["lanes"] - sum(split.values())})
         else:
             lanes = LaneInfo(image_width=w)
+        depth = None
+        if self.depth is not None:
+            with timer("depth"):
+                depth = self.depth(frame, detections)
         with timer("geometry"):
-            self.motion.update(detections, t, lanes, w, h, ego.speed_mps)
+            self.motion.update(detections, t, lanes, w, h, ego.speed_mps, depth=depth)
         return SceneContext(frame_idx=frame_idx, timestamp_s=t, width=w, height=h, ego=ego,
                             detections=detections, lanes=lanes)
 
