@@ -234,6 +234,19 @@ Hold/hysteresis của AEB kéo dài các phát hiện sai của perception đơn
   `scripts/v4_data.sh`), thêm frame 0,5 s trước và `lead`; nhãn/split giữ qua overlay. Model 2 frame v4:
   `scripts/pipeline_v4.sh`.
 
+## Chạy perception trên board SA8650P, hiển thị trên PC (10/10/2026)
+
+`perception.backend: board`: detector YOLO11s + lane YOLOP 384×640 chạy trên HTP của board qua
+`board/vla_stream_server` (C++, QNN API, nạp model một lần); PC gửi JPEG, nhận box + mask lane, chạy tiếp ByteTrack,
+fit lane, gate, HUD. Output trùng từng bit với `qnn-net-run`; capture → lệnh điều khiển 31 ms p50, 21.6 FPS kể cả HUD
+và ghi video. Hướng dẫn và số đo: [board/README.md](board/README.md).
+
+```bash
+bash board/board_server.sh start
+adas-vla run --no-vlm --set perception.backend=board --source data/samples/highway_traffic.mp4 --show
+bash board/board_server.sh stop
+```
+
 ## Ngân sách thời gian và latency từng stage (10/10/2026)
 
 Chi tiết: [docs/LATENCY_BUDGET.md](docs/LATENCY_BUDGET.md). `run --log` ghi `timing` (ms) cho từng frame

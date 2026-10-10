@@ -166,13 +166,19 @@ class _ProcessVLMWorker:
 
 class ADASPipeline:
     def __init__(self, cfg: Config, vlm=None, load_vlm: bool = True):
-        from .perception.detector import ObjectDetector
-
         self.cfg = cfg
-        self.detector = ObjectDetector(cfg.perception)
-        self.lane_detector = build_lane_detector(
-            cfg.perception.lane_model, cfg.perception.lane_weights, cfg.perception.device,
-        ) if cfg.perception.lane_detection else None
+        if cfg.perception.backend == "board":  # detector + lane model on the SA8650P HTP
+            from .perception.board import BoardDetector, BoardLaneDetector
+
+            self.detector = BoardDetector(cfg.perception)
+            self.lane_detector = BoardLaneDetector(self.detector) if cfg.perception.lane_detection else None
+        else:
+            from .perception.detector import ObjectDetector
+
+            self.detector = ObjectDetector(cfg.perception)
+            self.lane_detector = build_lane_detector(
+                cfg.perception.lane_model, cfg.perception.lane_weights, cfg.perception.device,
+            ) if cfg.perception.lane_detection else None
         self.motion = MotionEstimator(cfg.camera, cut_in_rate=cfg.perception.cut_in_rate,
                                       cut_in_max_distance_m=cfg.perception.cut_in_max_distance_m,
                                       cut_in_max_pull_away_mps=cfg.perception.cut_in_max_pull_away_mps,
@@ -336,3 +342,5 @@ class ADASPipeline:
     def close(self) -> None:
         if self._worker is not None:
             self._worker.close()
+        if hasattr(self.detector, "close"):
+            self.detector.close()

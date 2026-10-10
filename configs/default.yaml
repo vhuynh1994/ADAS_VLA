@@ -23,6 +23,10 @@ perception:
   cut_in_max_distance_m: 30.0  # ... and nearer than this is reported as CUTTING IN (and treated as the lead)
   cut_in_max_pull_away_mps: 1.0  # ... unless it is pulling away from us faster than this (overtaking, not a threat)
   velocity_window_s: 0.5      # closing speed = distance slope over this window (TTC noise vs lag)
+  backend: local             # local | board: detector + lane model on the SA8650P HTP (board/README.md)
+  board_host: 192.168.0.73
+  board_port: 50052
+  board_jpeg_quality: 90
 
 vlm:
   enabled: true

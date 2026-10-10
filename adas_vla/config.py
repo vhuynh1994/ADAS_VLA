@@ -47,6 +47,12 @@ class PerceptionConfig:
     cut_in_max_distance_m: float = 30.0
     cut_in_max_pull_away_mps: float = 1.0  # a vehicle moving away from us faster than this is not a cut-in threat
     velocity_window_s: float = 0.5  # closing speed = least-squares distance slope over this window
+    # local: models on this PC | board: detector + lane model on the SA8650P HTP via board/vla_stream_server
+    # (start it with board/board_server.sh start); tracking, lane fitting, geometry and the gate stay here
+    backend: str = "local"
+    board_host: str = "192.168.0.73"
+    board_port: int = 50052
+    board_jpeg_quality: int = 90
 
 
 @dataclass

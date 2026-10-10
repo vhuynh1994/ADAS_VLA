@@ -10,3 +10,4 @@ __pycache__/
 *.egg-info/
 /models/
 /docs/internal/
+/board/build/

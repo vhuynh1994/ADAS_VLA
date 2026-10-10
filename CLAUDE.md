@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (74 tests, must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (79 tests, must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -97,6 +97,10 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   alone cost 34%), W8A16 vs float lane IoU 0.954, board == emulator bit-exact. `YolopLaneDetector` takes square or
   non-square, 2-head or lane-only ONNX. Not the PC default (agreement with the square model: 16:9 IoU 0.86-0.90,
   comma2k19 4:3 only 0.70); select with `--set perception.lane_weights=models/yolop/yolop-lane-384x640.onnx`.
+- Board streaming: `board/vla_stream_server.cpp` (QNX 8.0, both context binaries loaded once, JPEG in, boxes + RLE
+  lane mask out; protocol in its header) + `adas_vla/perception/board.py` (`perception.backend: board`; ByteTrack and
+  lane fitting stay on the PC). Bit-exact vs qnn-net-run only with the SDK's floatToTfN quantization in the LUT (plain
+  round(x/scale)-offset differs on ~0.3% of 16-bit inputs). `tests/test_board.py` covers the client without a board.
 - Fixed a latent bug: `reset()` in async mode now drops the previous video's VLM result (timeline restarts at 0, so
   the old decision had a negative age and passed the gate's freshness check).
 
