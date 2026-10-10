@@ -92,6 +92,11 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   thread vs process microbenchmark; CUDA side streams / stream priority do not help). New `vlm.mode: process`
   (`_ProcessVLMWorker`, spawn, newest frame sent when the child is idle): no spikes, VLM p50 0.96 s, but perception
   ~2x slower from GPU time-slicing between two contexts (frame p50 50 ms). Sync stays the default for offline runs.
+- Lane-only YOLOP 384x640 (`scripts/make_yolop_lane.py`: drops the drivable head, 16:9 input; also writes QAIRT
+  calib/eval raws): SA8650P HTP 16.2 -> 4.7 ms p50 (W8A16, O3 + VTCM 8; the old binary used default config, which
+  alone cost 34%), W8A16 vs float lane IoU 0.954, board == emulator bit-exact. `YolopLaneDetector` takes square or
+  non-square, 2-head or lane-only ONNX. Not the PC default (agreement with the square model: 16:9 IoU 0.86-0.90,
+  comma2k19 4:3 only 0.70); select with `--set perception.lane_weights=models/yolop/yolop-lane-384x640.onnx`.
 - Fixed a latent bug: `reset()` in async mode now drops the previous video's VLM result (timeline restarts at 0, so
   the old decision had a negative age and passed the gate's freshness check).
 

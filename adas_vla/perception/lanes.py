@@ -127,8 +127,9 @@ class LaneDetector:
 class YolopLaneDetector(LaneDetector):
     """Lane lines from the YOLOP lane-segmentation head (hustvl/YOLOP, MIT), run on the GPU.
 
-    Only the two segmentation heads are kept (the detection head is dropped; YOLO11 handles objects),
-    converted from ONNX to PyTorch so it runs in ~7 ms on an RTX 4060 in fp16.
+    `weights` is either a released YOLOP ONNX (the detection head is dropped, both segmentation heads kept) or a
+    lane-only model from scripts/make_yolop_lane.py, square or not (e.g. 384x640 for 16:9 cameras). Converted from
+    ONNX to PyTorch and run in fp16.
     """
 
     MEAN = np.array([0.485, 0.456, 0.406], np.float32)
@@ -144,13 +145,19 @@ class YolopLaneDetector(LaneDetector):
         from onnx2torch import convert
 
         src = Path(weights)
-        seg = src.with_name(src.stem.replace("yolop-", "yolop-seg-") + src.suffix)
-        if not seg.exists():
-            onnx.utils.extract_model(str(src), str(seg), ["images"], ["drive_area_seg", "lane_line_seg"])
-        self.size = onnx.load(str(seg)).graph.input[0].type.tensor_type.shape.dim[2].dim_value
+        seg = src
+        if {o.name for o in onnx.load(str(src)).graph.output} - {"drive_area_seg", "lane_line_seg"}:
+            seg = src.with_name(src.stem.replace("yolop-", "yolop-seg-") + src.suffix)  # without the detection head
+            if not seg.exists():
+                onnx.utils.extract_model(str(src), str(seg), ["images"], ["drive_area_seg", "lane_line_seg"])
+        proto = onnx.load(str(seg))
+        dims = proto.graph.input[0].type.tensor_type.shape.dim
+        self.in_h, self.in_w = dims[2].dim_value, dims[3].dim_value
+        self.outputs = [o.name for o in proto.graph.output]
+        self.keep_drivable = keep_drivable and "drive_area_seg" in self.outputs
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.half = self.device.type == "cuda"
-        model = convert(onnx.load(str(seg))).eval().to(self.device)
+        model = convert(proto).eval().to(self.device)
         self.model = model.half() if self.half else model
         self._mean = torch.from_numpy(self.MEAN).to(self.device).view(1, 3, 1, 1)
         self._std = torch.from_numpy(self.STD).to(self.device).view(1, 3, 1, 1)
@@ -160,11 +167,11 @@ class YolopLaneDetector(LaneDetector):
         import torch
 
         h, w = frame_bgr.shape[:2]
-        scale = self.size / max(h, w)
+        scale = min(self.in_h / h, self.in_w / w)
         nh, nw = round(h * scale), round(w * scale)
-        top, left = (self.size - nh) // 2, (self.size - nw) // 2
+        top, left = (self.in_h - nh) // 2, (self.in_w - nw) // 2
         t0 = time.perf_counter()
-        canvas = np.full((self.size, self.size, 3), 114, np.uint8)
+        canvas = np.full((self.in_h, self.in_w, 3), 114, np.uint8)
         canvas[top:top + nh, left:left + nw] = cv2.resize(frame_bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
         # copy uint8 and normalize on the device: same float32 math as on the CPU, 4x fewer bytes, ~4 ms less
         x = torch.from_numpy(canvas).to(self.device).flip(-1).permute(2, 0, 1)[None].float()  # BGR->RGB, NCHW
@@ -172,7 +179,9 @@ class YolopLaneDetector(LaneDetector):
         x = x.half() if self.half else x
         t1 = time.perf_counter()
         with torch.inference_mode():
-            drive, lane = self.model(x)
+            out = self.model(x)
+        heads = dict(zip(self.outputs, out if isinstance(out, (tuple, list)) else (out,)))
+        lane, drive = heads["lane_line_seg"], heads.get("drive_area_seg")
         if self.device.type == "cuda":
             torch.cuda.synchronize(self.device)  # the .cpu() below waits anyway; this puts the wait in lane_model
         self.last_timing = {"lane_pre": (t1 - t0) * 1000, "lane_model": (time.perf_counter() - t1) * 1000}

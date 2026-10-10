@@ -17,7 +17,8 @@ perception:
   classes: [person, bicycle, car, motorcycle, bus, truck, traffic light, stop sign]
   lane_detection: true
   lane_model: yolop          # yolop (CNN lane segmentation: ~7 ms on GPU + ~8 ms Hough fit on CPU) | classic
-  lane_weights: models/yolop/yolop-640-640.onnx
+  lane_weights: models/yolop/yolop-640-640.onnx  # or yolop-lane-384x640.onnx (scripts/make_yolop_lane.py): lane head
+                             # only, 16:9 input, 3.4x faster on the HTP (docs/LATENCY_BUDGET.md)
   cut_in_rate: 0.25          # adjacent vehicle closing the gap to our corridor faster than this (corridor widths/s)
   cut_in_max_distance_m: 30.0  # ... and nearer than this is reported as CUTTING IN (and treated as the lead)
   cut_in_max_pull_away_mps: 1.0  # ... unless it is pulling away from us faster than this (overtaking, not a threat)

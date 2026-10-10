@@ -90,6 +90,30 @@ Nạp context: YOLO11s 12 ms, YOLOP 33 ms.
 - Chọn NSP: `device_id` trong file config extension của HTP; NSP1 tìm skel qua biến `CDSP1_LIBRARY_PATH`
   (`CDSP_LIBRARY_PATH` chỉ áp dụng cho NSP0; thiếu biến này sẽ gặp `qnn_open failed 0x80000406`).
 
+### Lane tối ưu: YOLOP chỉ giữ head lane, input 384×640 (2026-10-10)
+
+`scripts/make_yolop_lane.py` cắt head drivable (26.5 % số MAC, pipeline không dùng) và đặt input 384×640: với camera
+16:9, ảnh 640×360 vẫn giữ nguyên độ phân giải, chỉ bỏ 44 % pixel đệm xám của ô 640×640. Paper YOLOP cũng resize
+BDD100K về 640×384 trong các thí nghiệm. Lượng tử hóa W8A16 với 200 frame train (Australian / comma2k19 / Nexar).
+
+| Lane trên HTP NSP0 (ms) | p50 | p95 | max |
+|---|---|---|---|
+| YOLOP 640×640, 2 head, cấu hình mặc định (bản cũ) | 16.18 | 17.22 | 17.35 |
+| YOLOP 640×640, 2 head, O=3 + VTCM 8 MB | 10.63 | 11.91 | 12.21 |
+| Chỉ head lane 384×640, mặc định | 5.60 | 6.56 | 6.70 |
+| **Chỉ head lane 384×640, O=3 + VTCM 8 MB** | **4.71** | 5.85 | 6.06 |
+| YOLO11s khi lane 384×640 chạy liên tục cùng NSP (không priority) | 4.92 | 5.81 | 6.19 |
+
+- Nhanh hơn 3.4 lần; đạt D = 10 ms cho phần model. Riêng cấu hình build (O=3 + VTCM 8 MB) đã giảm 34 % cho bản cũ.
+- Khi chung NSP, detector chờ tối đa một inference lane: p95 từ 17.05 ms còn 5.81 ms, kể cả không đặt priority.
+- Độ chính xác: W8A16 so với float trên 20 frame giữ lại, IoU mask lane 0.954 (bản 640×640: 0.94); output trên board
+  giống hệt bit-by-bit HTP emulator (20/20).
+- So với model vuông (float, 60 frame / nguồn, đây là mức trùng khớp, chưa có nhãn lane thật): Australian IoU 0.90,
+  `offset_norm` lệch p50 0.017 / p95 0.094; Nexar 0.86, 0.042 / 0.32; comma2k19 (ảnh 4:3) 0.70, 0.047 / 0.20. Các frame
+  lệch nhiều là cảnh khó (ngã tư, vạch qua đường, ban đêm) mà cả hai model đều không chắc; với ảnh 4:3, input 384×640
+  làm giảm độ phân giải phần ảnh thật (640×481 → 511×384), nên chỉ dùng cho camera 16:9.
+- Trên PC (GPU) lợi ít hơn: `lane_model` 5.5 → 4.5 ms, vì phần Hough trên CPU chiếm phần lớn.
+
 ## 4. Phát hiện
 
 1. **Lane là stage vượt ngân sách lớn nhất.** Ban đầu `lanes` p50 23.3 ms (frame DMR 31 %): normalize float32
@@ -126,6 +150,6 @@ Nạp context: YOLO11s 12 ms, YOLOP 33 ms.
 - Lane: fit theo hàng thay cho Hough (so sánh offset_norm với bản hiện tại trên cùng clip) hoặc T = 2 frame.
 - `run --realtime` cho file video: bỏ frame để timeline bám đồng hồ thật như camera live, để gate dùng đúng tuổi.
 - Port C++ gate + controller (golden vectors sẵn sàng), đo WCET bằng vòng lặp 10⁵ lần.
-- Lane trên HTP: build YOLOP 384×640 chỉ giữ head lane, đo lại trên board (mục tiêu ≤ 10 ms cả post-processing).
+- Lane: thay Hough trên CPU (~8 ms) bằng fit theo hàng trên mask 384×640 để cả `lanes` ≤ 10 ms.
 - Trên board: đo cả đường frame (pre-process + HTP + decode/NMS + Hough + gate) bằng một runner C++ thay cho
   `qnn-net-run`; các số ở mục 3b mới là phần model.
