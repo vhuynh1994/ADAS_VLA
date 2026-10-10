@@ -185,7 +185,8 @@ def cmd_train(args) -> None:
     train(cfg, TrainArgs(data=args.data, output_dir=args.output, epochs=args.epochs, lr=args.lr,
                          grad_accum=args.grad_accum, lora_r=args.lora_r, val_data=args.val_data,
                          max_class_share=args.max_class_share, init_adapter=args.init_adapter,
-                         workers=args.workers, brake_weight=args.brake_weight))
+                         workers=args.workers, brake_weight=args.brake_weight, optimizer=args.optimizer,
+                         max_steps=args.max_steps))
 
 
 def cmd_eval(args) -> None:
@@ -308,15 +309,27 @@ def cmd_split(args) -> None:
 
 
 def cmd_merge(args) -> None:
-    """Fold a LoRA adapter into the base weights (bf16) so inference has no adapter overhead."""
-    import torch
-    from peft import PeftModel
-    from transformers import AutoModelForImageTextToText, AutoProcessor
+    """Fold a LoRA adapter into the base weights so inference has no adapter overhead.
 
+    Default: shard by shard (training/merge.py), never holding the whole model in RAM. `--full`: the whole model in
+    bf16 on the CPU + peft merge_and_unload (needs ~2 bytes x parameters of RAM; 16 GB for the 7B).
+    """
     from .config import resolve_model
 
     cfg = _load_cfg(args)
     base = resolve_model(cfg.vlm.model_id)
+    if not args.full:
+        from .training.merge import merge_lora
+
+        print(f"Merging {args.adapter} into {base} shard by shard -> {args.out}")
+        stats = merge_lora(base, args.adapter, args.out)
+        print(f"Merged {stats['merged']} tensors ({stats['lora_modules']} LoRA modules) over {stats['shards']} "
+              f"shard(s). Use it with: --set vlm.model_id={args.out} --set vlm.adapter_path=null")
+        return
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+
     print(f"Merging {args.adapter} into {base} (bf16, on CPU)...")
     model = AutoModelForImageTextToText.from_pretrained(base, dtype=torch.bfloat16, device_map="cpu")
     model = PeftModel.from_pretrained(model, args.adapter).merge_and_unload()
@@ -384,6 +397,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--workers", type=int, default=2, help="DataLoader workers preparing samples for the GPU")
     p.add_argument("--brake-weight", type=float, default=1.0,
                    help="loss weight of DECELERATE/BRAKE/STOP samples (e.g. 2.0 to fight under-braking)")
+    p.add_argument("--optimizer", choices=["adamw", "paged_adamw_8bit"], default="adamw",
+                   help="paged_adamw_8bit (bitsandbytes) keeps the optimizer state small and paged (7B on 8 GB)")
+    p.add_argument("--max-steps", type=int, help="stop after N optimizer steps: memory / speed smoke test that "
+                   "prints the peak VRAM and the ETA of the full run")
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("eval", help="evaluate action accuracy / JSON validity / latency on a dataset")
@@ -452,6 +469,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p)
     p.add_argument("--adapter", required=True)
     p.add_argument("--out", required=True, help="output directory, e.g. models/adas-vlm-v1")
+    p.add_argument("--full", action="store_true",
+                   help="old path: whole model in bf16 on the CPU + peft merge_and_unload (needs RAM for the full model)")
     p.set_defaults(func=cmd_merge)
 
     p = sub.add_parser("export", help="export the detector for Qualcomm QAIRT/QNN (static-shape ONNX)")

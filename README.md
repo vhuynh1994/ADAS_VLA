@@ -255,10 +255,25 @@ car↔truck, ước lượng xa hơn thật với bbox bị cắt). `perception/
   Chỉ bật mặc định (`perception.depth.enabled: true`) nếu AEB sai trên clip bình thường giảm mà AEB trong cửa sổ nguy
   hiểm Nexar không giảm.
 
+## Vòng 5 (chuẩn bị, chưa chạy): base model Qwen2.5-VL-7B-Instruct
+
+Qwen2.5-VL-7B là cỡ Qualcomm AI Hub phát hành bản tối ưu (`qwen2_5_vl_7b_instruct`, Genie w4a16, có SA8650P / SA8775P)
+và dùng license Apache-2.0 (bản 3B là Qwen Research, phi thương mại). Cùng kiến trúc với 3B nên dataset, prompt,
+`encode_messages`, regex LoRA, input 2 frame dùng lại nguyên; chỉ fine-tune lại.
+
+- Profile `configs/vlm_7b.yaml`; toàn bộ vòng chạy bằng `scripts/pipeline_v5_7b.sh` (smoke 20 step đo VRAM + ETA →
+  train 3 epoch theo recipe v3 → merge → eval v5 vs v3 trên ds_v3 → sweep → demo → báo cáo HTML).
+- `adas-vla train --optimizer paged_adamw_8bit --max-steps N`: optimizer 8-bit của bitsandbytes cho 7B trên 8 GB;
+  chạy N step rồi dừng, in VRAM đỉnh và ETA của cả vòng.
+- `adas-vla merge` giờ gộp LoRA **theo từng shard** safetensors (`W + α/r·B·A`), không cần nạp cả model 7B bf16
+  (16 GB RAM) vào bộ nhớ; `--full` là đường cũ qua peft.
+- Nếu smoke hết VRAM: `V5_EXTRA="--set vlm.quantize_vision=true"` cho mọi bước 7B và
+  `TRAIN_EXTRA="--optimizer paged_adamw_8bit --lora-r 8"`. v5 chỉ thành mặc định nếu thắng v3 ở under-braking trước.
+
 ## Giới hạn và lưu ý
 
 - **Không dùng để điều khiển xe thật.** Đây là prototype R&D.
 - Khoảng cách được ước lượng từ 1 camera (chiều cao bbox + FOV), nên nhiễu. Cần chỉnh `camera.hfov_deg` theo camera thật.
   `perception.depth` (Depth-Anything) là lựa chọn thay thế, chưa được đo trên dữ liệu thật.
 - Với video, tốc độ ego lấy từ `--ego-speed` (không có CAN bus).
-- **License:** Qwen2.5-VL-3B dùng Qwen Research License (phi thương mại). Ultralytics YOLO dùng AGPL-3.0. Trước khi thương mại hóa, xem mục 3–4 của tài liệu deploy.
+- **License:** Qwen2.5-VL-3B dùng Qwen Research License (phi thương mại); vòng 5 chuyển sang Qwen2.5-VL-7B (Apache-2.0). Ultralytics YOLO dùng AGPL-3.0. Trước khi thương mại hóa, xem mục 3–4 của tài liệu deploy.

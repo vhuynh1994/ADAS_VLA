@@ -52,8 +52,8 @@ Tiêu chí: vừa bộ nhớ khi lượng tử hóa, dễ tách thành các sub-
 
 | Model | License (HF) | Params | Cách ghép ảnh vào LLM | Nhận xét |
 |---|---|---|---|---|
-| **Qwen2.5-VL-3B-Instruct** (mặc định) | Qwen Research (phi thương mại) | 3.75B | Chỉ ở **embedding đầu vào** | Tách gọn thành ViT + LM; W4 LM ≈ 2 GB. Phù hợp R&D/học tập |
-| Qwen2.5-VL-7B-Instruct | Apache-2.0 | 8.3B | Như trên | Dùng thương mại được; nặng hơn (W4 ≈ 4 GB) |
+| Qwen2.5-VL-3B-Instruct (mặc định hiện tại, v3) | Qwen Research (phi thương mại) | 3.75B | Chỉ ở **embedding đầu vào** | Tách gọn thành ViT + LM; W4 LM ≈ 2 GB. Phù hợp R&D/học tập. Không có trong catalog AI Hub |
+| **Qwen2.5-VL-7B-Instruct** (base của vòng 5, `configs/vlm_7b.yaml`) | Apache-2.0 | 8.3B | Như trên | Dùng thương mại được; nặng hơn (W4 ≈ 4 GB). Cỡ duy nhất của họ Qwen2.5-VL mà AI Hub phát hành bản tối ưu (`qwen2_5_vl_7b_instruct`, Genie w4a16; SA8650P / SA8775P / SA8255P ADP) |
 | Qwen3-VL-2B / 4B-Instruct | Apache-2.0 | 2.1B / 4.4B | **DeepStack**: feature ảnh tiêm vào nhiều layer đầu của LLM | Tách sub-model phức tạp hơn; cần xác nhận hỗ trợ |
 | Qwen3.5-2B / 4B | Apache-2.0 | 2.3B / 4.7B | Native multimodal, attention lai (linear) | Cần xác nhận hỗ trợ op |
 | Qwen-Drive-1.0-4B | Apache-2.0 | 4.5B | Thêm BEV head + planner flow-matching | Tham khảo nghiên cứu |
@@ -68,7 +68,7 @@ Hướng mở rộng: thêm action head nhỏ (MLP) xuất quỹ đạo từ hid
 - [ ] Chốt độ phân giải ảnh cố định (`vlm.image_size`, bội số 28 cho Qwen2.5-VL) và fine-tune/đánh giá đúng độ phân giải đó
 - [ ] Nếu dùng input 2 frame (`vlm.prev_frame_s: 0.5`): input ViT thành `[2, 3, 308, 560]` (vẫn shape tĩnh, 220 token);
       pipeline giữ buffer frame 0,5 s (`sources.FrameHistory`)
-- [ ] Merge LoRA vào weights (`adas-vla merge`) trước khi lượng tử hóa
+- [ ] Merge LoRA vào weights (`adas-vla merge`, gộp theo từng shard, không cần RAM cho cả model) trước khi lượng tử hóa
 - [ ] Rút gọn system prompt, cân nhắc cache prefix cố định
 - [ ] Output ngắn: action trước, dừng sớm (`vlm.generate_reason: false`) — đã đo p50 0.9 s trên RTX 4060
 - [ ] Dữ liệu calibration lượng tử hóa lấy từ kịch bản ADAS thật (đêm, mưa, đô thị, cao tốc)

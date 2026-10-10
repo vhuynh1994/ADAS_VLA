@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (81 tests, must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (86 tests with torch; without it `tests/test_merge.py` is skipped as one item: 82 passed, 1 skipped; must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -109,6 +109,30 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
 5. Deployment path: export the same checkpoint from AI Hub (`depth_anything_v2`, ONNX) and run it through
    `perception.depth.backend: onnx` (input shape read from the graph; `onnx_normalize` per export) before the HTP step.
 
+## Round 5 plan (2026-10-10, cloud session: prepared, NOT yet run): base model Qwen2.5-VL-7B-Instruct
+Owner's decision. Why: the 7B is the Qwen2.5-VL size Qualcomm AI Hub ships optimized (`qwen2_5_vl_7b_instruct`,
+Genie w4a16; SA8650P / SA8775P / SA8255P ADP listed) and it is Apache-2.0 (the 3B is Qwen Research, non-commercial).
+Same architecture as the 3B: dataset, prompts, `encode_messages`, `LORA_TARGET_REGEX`, 2-frame input and the
+first-token `ActionPolicy` carry over; only the fine-tune is redone.
+- `configs/vlm_7b.yaml` (base profile; the 7B teacher weights `models/Qwen--Qwen2.5-VL-7B-Instruct` may already be on
+  the PC from `teacher_7b.yaml`). `scripts/pipeline_v5_7b.sh`: 20-step smoke (peak VRAM + ETA) -> train 3 epochs with
+  the v3 recipe (class share 0.55, lr 2e-4, brake weight 1.0) -> shard-wise merge -> eval v5 vs v3 on ds_v3 (val +
+  Nexar; the v3 jsonl from the v4 pipeline are reused) -> sweep -> `run` demo + `explain` -> HTML reports.
+- `adas-vla train --optimizer paged_adamw_8bit --max-steps N`: bitsandbytes 8-bit paged optimizer; an N-step run
+  prints `peak_mem` and the ETA of the full run, then stops (`training/finetune.py: build_optimizer`).
+- `adas-vla merge` now merges **shard by shard** (`training/merge.py`: `W + alpha/r * B @ A` on each safetensors
+  shard, keys of the Qwen2.5-VL checkpoint renames resolved, config/tokenizer/processor files copied); the old
+  full-model path (16 GB RAM for the 7B in bf16) is `--full`. `tests/test_merge.py` needs torch + safetensors
+  (skipped in the minimal CI environment, runs on the PC).
+- Expectations / risks: QLoRA 7B peak VRAM ~6.5-7.5 GB on the 8 GB card (the 3B peaked 4.7 GB). If the smoke OOMs:
+  `V5_EXTRA="--set vlm.quantize_vision=true"` for ALL 7B stages (train and eval must see the same ViT) and
+  `TRAIN_EXTRA="--optimizer paged_adamw_8bit --lora-r 8"`. Step time ~2.5x the 3B (read the ETA of the smoke before
+  committing the GPU overnight). PC eval latency ~2x v3 (the <= 1 s target is for the NPU, measure on the board).
+  The demo runs `run` then `explain` separately: the 7B VLM and the Qwen3-4B LLM do not fit together in 8 GB.
+- Decision rule unchanged: v5 becomes the default (`configs/default.yaml: vlm.model_id`) only if it wins on
+  under-braking first on the fixed val split, then on joint accuracy; keep the Nexar crash test as the second table.
+
+## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.
 3. Expert-reviewed val labels (current val labels were reviewed by an AI, see `docs/DATASET.md`).

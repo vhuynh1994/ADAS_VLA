@@ -40,6 +40,8 @@ class TrainArgs:
     val_limit: int = 150  # val-loss subset size (full evaluation is `adas-vla eval`)
     workers: int = 2  # DataLoader workers: decode images and tokenize while the GPU trains (0 = main thread)
     brake_weight: float = 1.0  # loss multiplier for samples labelled DECELERATE / BRAKE / STOP (targets under-braking)
+    optimizer: str = "adamw"  # adamw | paged_adamw_8bit (bitsandbytes: 8-bit, paged optimizer state; 7B on 8 GB)
+    max_steps: int | None = None  # stop after this many optimizer steps (smoke test: peak memory + ETA of the full run)
 
 
 def label_key(rec: dict) -> tuple[str, str]:
@@ -94,6 +96,20 @@ def build_example(processor, rec: dict, cfg: Config) -> dict:
     labels[:, :n_prompt] = -100
     enc_full["labels"] = labels
     return dict(enc_full)
+
+
+def build_optimizer(params, name: str, lr: float):
+    """AdamW, or bitsandbytes' 8-bit paged AdamW (the optimizer state of a 7B LoRA shrinks ~4x and can spill to
+    pinned CPU memory under pressure instead of raising an out-of-memory error)."""
+    import torch
+
+    if name == "adamw":
+        return torch.optim.AdamW(params, lr=lr, weight_decay=0.0)
+    if name == "paged_adamw_8bit":
+        import bitsandbytes as bnb
+
+        return bnb.optim.PagedAdamW8bit(params, lr=lr, weight_decay=0.0)
+    raise ValueError(f"Unknown optimizer: {name}")
 
 
 def _to_device(batch: dict, device) -> dict:
@@ -171,7 +187,7 @@ def train(cfg: Config, args: TrainArgs) -> None:
     model.print_trainable_parameters()
 
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
+    optimizer = build_optimizer(params, args.optimizer, args.lr)
     total_steps = max(1, math.ceil(epoch_size * args.epochs / args.grad_accum))
     scheduler = get_cosine_schedule_with_warmup(optimizer, max(1, total_steps // 20), total_steps)
     device = next(model.parameters()).device
@@ -193,12 +209,19 @@ def train(cfg: Config, args: TrainArgs) -> None:
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 step += 1
-                if step % args.log_every == 0 or step == total_steps:
+                if step % args.log_every == 0 or step == total_steps or step == args.max_steps:
                     mem = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0
+                    elapsed = time.time() - t0
                     print(f"epoch {epoch + 1} step {step}/{total_steps} loss {running:.4f} "
                           f"lr {scheduler.get_last_lr()[0]:.2e} peak_mem {mem:.1f}GB "
-                          f"elapsed {time.time() - t0:.0f}s", flush=True)
+                          f"elapsed {elapsed:.0f}s eta {elapsed / step * (total_steps - step) / 60:.0f}min", flush=True)
                 running = 0.0
+                if args.max_steps and step >= args.max_steps:
+                    break
+        if args.max_steps and step >= args.max_steps:
+            print(f"Stopped after {step} optimizer steps (--max-steps); the full run would take "
+                  f"{(time.time() - t0) / step * total_steps / 3600:.1f} h at this pace.")
+            break
         if val_records:
             print(f"epoch {epoch + 1} val_loss {_val_loss(model, processor, val_records, cfg, device):.4f}")
 

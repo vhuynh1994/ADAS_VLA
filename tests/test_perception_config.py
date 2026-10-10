@@ -76,6 +76,16 @@ def test_pc_fast_profile_loads():
     assert cfg.safety.aeb_ttc_s == Config().safety.aeb_ttc_s
 
 
+def test_vlm_7b_profile_loads():
+    from adas_vla.config import DEFAULT_CONFIG_PATH
+
+    cfg = load_config(DEFAULT_CONFIG_PATH.parent / "vlm_7b.yaml")
+    assert cfg.vlm.model_id == "Qwen/Qwen2.5-VL-7B-Instruct"
+    assert cfg.vlm.quantization == "4bit" and cfg.vlm.quantize_vision is False
+    assert cfg.vlm.image_size == [560, 308] and cfg.vlm.prev_frame_s == 0.0
+    assert cfg.perception.depth.enabled is False  # the profile only touches the VLM section
+
+
 def test_oncoming_vehicle_flagged_and_not_described_as_threat():
     cfg = Config()
     est = MotionEstimator(cfg.camera, dist_tau_s=0.0)
