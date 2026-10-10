@@ -264,3 +264,6 @@ class FrameResult:
     command: ControlCommand
     alerts: list[Alert] = field(default_factory=list)
     perception_ms: float = 0.0
+    timing: dict[str, float] = field(default_factory=dict)  # per-stage ms, see adas_vla/timing.py
+    vlm_age_s: float | None = None  # age of the VLM decision in effect, on the frame timeline (what the gate uses)
+    vlm_age_wall_s: float | None = None  # same, wall clock since that frame's capture (real age on a live camera)

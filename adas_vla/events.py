@@ -37,6 +37,9 @@ def frame_record(res) -> dict:
         "decision": res.decision.to_dict(), "alerts": [a.__dict__ for a in res.alerts],
         "command": {k: (v.value if hasattr(v, "value") else round(v, 3)) for k, v in res.command.__dict__.items()},
         "objects": [d.describe() for d in res.context.detections],
+        "timing": {k: round(v, 3) for k, v in res.timing.items()},
+        "vlm_age_s": None if res.vlm_age_s is None else round(res.vlm_age_s, 3),
+        "vlm_age_wall_s": None if res.vlm_age_wall_s is None else round(res.vlm_age_wall_s, 3),
     }
 
 

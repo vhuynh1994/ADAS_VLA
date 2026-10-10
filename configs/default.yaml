@@ -16,7 +16,7 @@ perception:
   track: true                # ByteTrack IDs -> closing speed -> time-to-collision
   classes: [person, bicycle, car, motorcycle, bus, truck, traffic light, stop sign]
   lane_detection: true
-  lane_model: yolop          # yolop (CNN lane segmentation, ~7 ms on GPU) | classic (Canny + Hough)
+  lane_model: yolop          # yolop (CNN lane segmentation: ~7 ms on GPU + ~8 ms Hough fit on CPU) | classic
   lane_weights: models/yolop/yolop-640-640.onnx
   cut_in_rate: 0.25          # adjacent vehicle closing the gap to our corridor faster than this (corridor widths/s)
   cut_in_max_distance_m: 30.0  # ... and nearer than this is reported as CUTTING IN (and treated as the lead)
@@ -42,7 +42,8 @@ vlm:
   action_policy: greedy      # greedy | cautious | cautious_gated (cautious only when perception shows a hazard)
   temperature: 0.0
   language: en               # en | vi
-  mode: sync                 # sync (offline video, deterministic) | async (live camera)
+  mode: sync                 # sync (offline video, deterministic) | process (live camera: VLM in its own
+                             # process) | async (thread; stalls perception ~240 ms per VLM prefill)
   trigger: event             # interval | event (also call on new lead / VRU in path / light / lanes lost)
   every_n_frames: 15
   min_interval_frames: 5
@@ -80,3 +81,15 @@ control:
   kp_steer: 0.5
   nudge_bias: 0.1
   lane_change_bias: 0.25
+
+budget:                      # deadlines D per stage, ms (docs/LATENCY_BUDGET.md); `adas-vla latency --log run.jsonl`
+  deadlines_ms:              # targets on the SoC; on the PC they show margin and jitter
+    read: 5.0                # capture / decode (SoC: ISP + letterbox, zero-copy)
+    detector: 15.0           # YOLO11s + ByteTrack (SoC: HTP INT8)
+    lanes: 10.0              # YOLOP (SoC: HTP, or every 2nd frame)
+    geometry: 3.0            # distance / TTC / cut-in (SoC: CPU, C++)
+    gate: 1.0                # safety gate, hard realtime (SoC: isolated CPU core)
+    control: 0.5             # controller, same core as the gate
+    frame: 33.3              # capture -> command without the VLM = frame period at 30 fps
+  vlm_p50_s: 1.0             # VLM call latency, median (acceptance criterion)
+  warmup_frames: 30          # left out of the statistics

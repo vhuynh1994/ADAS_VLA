@@ -51,6 +51,7 @@ class ObjectDetector:
         wanted = set(cfg.classes)
         self.class_ids = [i for i, n in names.items() if n in wanted]
         self.names = names
+        self.last_timing: dict[str, float] = {}  # Ultralytics split of the last call, ms (det_pre/model/post)
 
     def reset(self) -> None:
         """Forget tracker state (call when switching to a new video)."""
@@ -68,6 +69,10 @@ class ObjectDetector:
             result = self.model.track(frame_bgr, persist=True, tracker="bytetrack.yaml", **kwargs)[0]
         else:
             result = self.model.predict(frame_bgr, **kwargs)[0]
+        speed = result.speed or {}
+        self.last_timing = {name: float(speed[key]) for name, key in
+                            (("det_pre", "preprocess"), ("det_model", "inference"), ("det_post", "postprocess"))
+                            if speed.get(key) is not None}
 
         boxes = result.boxes
         if boxes is None or len(boxes) == 0:

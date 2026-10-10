@@ -49,9 +49,21 @@ def cmd_run(args) -> None:
     log_file = open(args.log, "w") if args.log else None
     ego = EgoState(speed_kmh=cfg.ego_speed_kmh)
     n, t_start = 0, time.perf_counter()
+    live = args.source.isdigit() or "://" in args.source  # reading a live source mostly waits for the next frame
+    timings, ages = [], []
+    frames = iter_frames(args.source, args.max_frames)
     try:
-        for idx, t, frame in iter_frames(args.source, args.max_frames):
-            res = pipe.process(frame, idx, t, ego)
+        while True:
+            t_read = time.perf_counter()
+            item = next(frames, None)
+            if item is None:
+                break
+            idx, t, frame = item
+            capture_s = time.perf_counter()
+            res = pipe.process(frame, idx, t, ego, capture_s=capture_s,
+                               read_ms=None if live else (capture_s - t_read) * 1000)
+            timings.append(res.timing)
+            ages.append(res.vlm_age_wall_s)
             vis = hud.draw(frame, res)
             if args.output:
                 if writer is None:
@@ -82,12 +94,41 @@ def cmd_run(args) -> None:
 
     elapsed = time.perf_counter() - t_start
     print(f"\nProcessed {n} frames in {elapsed:.1f}s ({n / max(elapsed, 1e-6):.1f} FPS)")
+    _print_latency(cfg, timings, ages)
     if pipe.vlm_calls:
-        lat = sorted(pipe.vlm_latencies)
-        print(f"VLM calls: {pipe.vlm_calls}, unparsable: {pipe.vlm_failures}, "
-              f"latency p50 {lat[len(lat) // 2]:.2f}s  max {lat[-1]:.2f}s")
+        from .timing import percentile
+
+        lat = pipe.vlm_latencies
+        print(f"VLM calls: {pipe.vlm_calls}, unparsable: {pipe.vlm_failures}, latency p50 {percentile(lat, 50):.2f}s"
+              f" (budget {cfg.budget.vlm_p50_s:g}s)  p95 {percentile(lat, 95):.2f}s  max {max(lat):.2f}s")
     if args.output:
         print(f"Annotated video: {args.output}")
+
+
+def _print_latency(cfg, timings: list[dict], ages: list, warmup: int | None = None,
+                   json_path: str | None = None) -> None:
+    from .timing import latency_report
+
+    text, stats = latency_report(timings, ages, cfg.budget.deadlines_ms, cfg.vlm.max_decision_age_s,
+                                 cfg.budget.warmup_frames if warmup is None else warmup)
+    print(text)
+    if json_path:
+        Path(json_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(json_path).write_text(json.dumps(stats, indent=1))
+        print(f"Latency statistics: {json_path}")
+
+
+def cmd_latency(args) -> None:
+    """Per-stage latency of a `run --log` JSONL against the budget (no GPU needed)."""
+    from .events import load_run_log
+
+    cfg = _load_cfg(args)
+    records = load_run_log(args.log)
+    timings = [r.get("timing") or {} for r in records]
+    if not any(timings):
+        sys.exit(f"{args.log} has no per-frame timing (written by an older version of `adas-vla run --log`)")
+    print(f"{args.log}: {len(records)} frames")
+    _print_latency(cfg, timings, [r.get("vlm_age_wall_s") for r in records], args.warmup, args.json)
 
 
 def cmd_analyze(args) -> None:
@@ -345,7 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log", help="write per-frame decisions as JSONL")
     p.add_argument("--show", action="store_true", help="display a window (q to quit)")
     p.add_argument("--max-frames", type=int)
-    p.add_argument("--vlm-mode", choices=["sync", "async"])
+    p.add_argument("--vlm-mode", choices=["sync", "async", "process"])
     p.add_argument("--vlm-every", type=int, help="run the VLM every N frames")
     p.set_defaults(func=cmd_run)
 
@@ -411,6 +452,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-events", type=int, default=10)
     p.add_argument("--min-gap", type=float, default=2.0, help="merge repeats of an alert within N seconds")
     p.set_defaults(func=cmd_explain)
+
+    p = sub.add_parser("latency", help="per-stage latency of a run log against the budget (no GPU)")
+    _add_common(p)
+    p.add_argument("--log", required=True, help="JSONL written by `adas-vla run --log`")
+    p.add_argument("--warmup", type=int, help="frames to leave out (default: budget.warmup_frames)")
+    p.add_argument("--json", help="also write the statistics as JSON")
+    p.set_defaults(func=cmd_latency)
 
     p = sub.add_parser("build-dataset", help="build labels.jsonl from public dashcam data")
     _add_common(p)

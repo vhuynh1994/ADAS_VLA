@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (65 tests, must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (74 tests, must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -78,6 +78,22 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   6.2% / 23.7% (Nexar: v3 63.7 / 3.5 / 32.8, v4 61.1 / 2.4 / 36.6). v3 with cautious decoding at tau 0.35 on the same
   val gives 67.3% / 6.1% / 23.1% -> v4 only moved along v3's trade-off curve (brake weight 2.0), the 2-frame input
   added no measurable information. v3 stays the default; v4 kept in `models/adas-vlm-v4` (needs prev_frame_s 0.5).
+
+## Changes 2026-10-10 (latency budget + per-stage timing, measured on the owner's PC)
+- Budget (step B0 of the owner's deployment notes): `budget:` in `configs/default.yaml` (`BudgetConfig`), table and
+  PC numbers in `docs/LATENCY_BUDGET.md` (proposed deadlines, owner to confirm).
+- `adas_vla/timing.py`: per-frame `FrameResult.timing` (ms: read, detector = det_pre/model/post/track, lanes =
+  lane_pre/model/post, geometry, vlm, gate, control, frame = capture->command without VLM, e2e), `vlm_age_s`
+  (timeline, what the gate uses) and `vlm_age_wall_s`; written by `run --log`, summarized at the end of `run` and by
+  `adas-vla latency --log x.jsonl [--json]` (nearest-rank p50/p95/p99/max, DMR, longest run of misses).
+- YOLOP normalize moved to the GPU (bit-identical lane output on 521 frames): lanes 23.3 -> 15.4 ms p50; the
+  remaining ~8 ms is Hough on the full-res mask (CPU), over the 10 ms lanes budget.
+- Async VLM thread holds the GIL while waiting for the GPU: every prefill stalls the detector ~240 ms (proved with a
+  thread vs process microbenchmark; CUDA side streams / stream priority do not help). New `vlm.mode: process`
+  (`_ProcessVLMWorker`, spawn, newest frame sent when the child is idle): no spikes, VLM p50 0.96 s, but perception
+  ~2x slower from GPU time-slicing between two contexts (frame p50 50 ms). Sync stays the default for offline runs.
+- Fixed a latent bug: `reset()` in async mode now drops the previous video's VLM result (timeline restarts at 0, so
+  the old decision had a negative age and passed the gate's freshness check).
 
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.

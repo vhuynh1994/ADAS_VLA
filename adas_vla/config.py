@@ -78,7 +78,9 @@ class VLMConfig:
     cautious_tau_brake: float = 0.30
     temperature: float = 0.0  # 0 = greedy decoding
     language: str = "en"  # en | vi: language of free-text fields (scene, reason, chat)
-    mode: str = "sync"  # sync: deterministic, for offline video | async: background thread, for live camera
+    # sync: deterministic, for offline video | async: background thread | process: separate process (live camera;
+    # a thread holds the GIL while it waits for the GPU and stalls perception)
+    mode: str = "sync"
     every_n_frames: int = 15
     max_decision_age_s: float = 2.0  # older VLM decisions are ignored in favour of the rule-based policy
 
@@ -127,6 +129,23 @@ class ControlConfig:
 
 
 @dataclass
+class BudgetConfig:
+    """Deadlines D (ms) of the per-frame stages (docs/LATENCY_BUDGET.md, step B0). They are proposed targets for
+    the SoC; on the PC the run summary uses them to show the margin and the jitter, not a pass/fail of the target."""
+
+    deadlines_ms: dict[str, float] = field(default_factory=lambda: {
+        "read": 5.0, "detector": 15.0, "lanes": 10.0, "geometry": 3.0, "gate": 1.0, "control": 0.5, "frame": 33.3,
+    })
+    vlm_p50_s: float = 1.0  # VLM call latency, median
+    warmup_frames: int = 30  # frames left out of the statistics (CUDA kernels, caches, tracker start)
+
+    def __post_init__(self) -> None:
+        # a config or --set that names only some stages keeps the default deadline of the others
+        self.deadlines_ms = {**BudgetConfig.__dataclass_fields__["deadlines_ms"].default_factory(),
+                             **(self.deadlines_ms or {})}
+
+
+@dataclass
 class Config:
     camera: CameraConfig = field(default_factory=CameraConfig)
     perception: PerceptionConfig = field(default_factory=PerceptionConfig)
@@ -134,6 +153,7 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     control: ControlConfig = field(default_factory=ControlConfig)
+    budget: BudgetConfig = field(default_factory=BudgetConfig)
     ego_speed_kmh: float = 60.0  # used when no CAN bus speed is available (video files)
 
 

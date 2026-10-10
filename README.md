@@ -49,8 +49,11 @@ adas-vla run --source data/samples/highway_traffic.mp4 --output outputs/demo.mp4
 # chỉ perception + rules (không load VLM), để test nhanh
 adas-vla run --source data/samples/highway_traffic.mp4 --no-vlm --output outputs/rules.mp4
 
-# camera trực tiếp: VLM chạy thread nền
-adas-vla run --source 0 --show --vlm-mode async
+# camera trực tiếp: VLM chạy ở process riêng (thread `async` làm perception đứng ~240 ms mỗi lần VLM prefill)
+adas-vla run --source 0 --show --vlm-mode process
+
+# latency từng stage so với ngân sách (docs/LATENCY_BUDGET.md), từ log của bước 1, không cần GPU
+adas-vla latency --log outputs/demo.jsonl --json outputs/latency.json
 
 # 2) Phân tích 1 ảnh → in JSON quyết định
 adas-vla analyze --image data/samples/street.jpg --ego-speed 30
@@ -128,7 +131,8 @@ adas_vla/
   perception/         detector.py (YOLO11s+ByteTrack, màu đèn), geometry.py (distance/TTC/oncoming), lanes.py (YOLOP CNN hoặc classic)
   reasoning/          prompts.py, parser.py (JSON chịu lỗi), vlm.py (transformers, 4-bit, LoRA)
   control/            safety.py (safety gate, AEB/FCW hysteresis), controller.py, golden.py (đọc/replay golden vectors)
-  pipeline.py         dual-rate pipeline, VLM sync/async
+  pipeline.py         dual-rate pipeline, VLM sync / async (thread) / process
+  timing.py           latency từng stage, DMR, tuổi quyết định VLM (`adas-vla latency`)
   hud.py  sources.py  cli.py
   training/           autolabel.py, finetune.py (QLoRA + cân bằng lớp), evaluate.py, data.py
   datasets/           comma2k19.py (nhãn từ CAN), clips.py (teacher + safety), common.py
@@ -139,7 +143,7 @@ configs/              default.yaml (Qwen2.5-VL-3B + Qwen3-4B, 4-bit) · smoke.ya
 scripts/              download_samples.sh · download_models.sh · fetch_hf.py · sweep_policy.py · safety_golden.py
 tests/data/safety_golden.json   kịch bản → quyết định mong đợi của safety gate (test tương đương cho bản C++)
 .github/workflows/ci.yml        pytest trên Python 3.10 + 3.12, không cần GPU
-docs/DEPLOY_SA8797P.md
+docs/DEPLOY_SA8797P.md · docs/LATENCY_BUDGET.md (ngân sách B0 + số đo latency trên PC)
 ```
 
 ## Kết quả đã kiểm chứng trên PC này (RTX 4060 Laptop 8 GB, 27/09/2026)
@@ -149,7 +153,7 @@ docs/DEPLOY_SA8797P.md
 | Unit test | 44/44 pass (`pytest -q`); 61/61 sau phiên 29/09 (chạy trên cloud, Python 3.11, không GPU) |
 | Perception + safety + HUD (YOLO11n, ByteTrack, lane) | ~12 ms/frame; 22 FPS kể cả ghi video |
 | VLM Qwen2.5-VL-3B 4-bit, 560×308 | JSON hợp lệ 15/15, latency p50 2.1 s, **VRAM đỉnh 2.7 GB** (gồm cả YOLO) |
-| Chế độ async | vòng perception giữ ~30 FPS trong khi VLM chạy nền |
+| Chế độ async | vòng perception giữ ~30 FPS trong khi VLM chạy nền (đo lại 10/10 bằng `timing`: 19.9 FPS, p99 222 ms, xem docs/LATENCY_BUDGET.md) |
 | Safety gate | ảnh đường phố: VLM đề xuất `NUDGE_LEFT`, gate ghi đè thành `EMERGENCY_BRAKE` (người trong làn, 3 m) |
 | Copilot chat (tiếng Việt) | 0.6–1.5 s/câu; được đưa cảnh báo an toàn vào ngữ cảnh nên không phủ nhận AEB |
 | QLoRA fine-tune (12 mẫu, 4 epoch) | 80 s, VRAM đỉnh 4.7 GB, loss 0.29 → 0.085 |
@@ -229,6 +233,26 @@ Hold/hysteresis của AEB kéo dài các phát hiện sai của perception đơn
 - **Dataset `ds_v3`** = đúng các mẫu của `ds_v2` build lại với perception mới (`build-dataset comma2k19 --only-from`,
   `scripts/v4_data.sh`), thêm frame 0,5 s trước và `lead`; nhãn/split giữ qua overlay. Model 2 frame v4:
   `scripts/pipeline_v4.sh`.
+
+## Ngân sách thời gian và latency từng stage (10/10/2026)
+
+Chi tiết: [docs/LATENCY_BUDGET.md](docs/LATENCY_BUDGET.md). `run --log` ghi `timing` (ms) cho từng frame
+(`read`, `detector` = `det_pre/model/post/track`, `lanes` = `lane_pre/model/post`, `geometry`, `vlm`, `gate`,
+`control`, `frame`, `e2e`) và tuổi quyết định VLM (`vlm_age_s` theo timeline, `vlm_age_wall_s` theo đồng hồ thật);
+cuối run in p50/p95/p99/max, DMR so với deadline `budget.deadlines_ms`.
+
+| highway_traffic.mp4, 600 frame, RTX 4060 | frame p50 / p99 (D = 33.3 ms) | DMR | VLM p50 | tuổi VLM wall p50 |
+|---|---|---|---|---|
+| không VLM | 22.3 / 28.7 ms | 0.4 % | – | – |
+| VLM `async` (thread) | 28.1 / 222 ms | 14 % | 1.46 s | 2.62 s |
+| VLM `process` (mới) | 49.8 / 81.9 ms | 95.6 % | 0.96 s | 1.95 s |
+
+- YOLOP: normalize chuyển lên GPU (output giống hệt), `lanes` 23.3 → 15.4 ms; còn Hough ~7 ms CPU vượt D = 10 ms.
+- Thread VLM giữ GIL trong lúc chờ GPU: mỗi prefill làm detector đứng ~240 ms. Process riêng hết spike nhưng GPU
+  chia time-slice nên perception chậm ~2 lần: trên SoC, VLM và CNN không được chung hàng đợi accelerator mà không
+  có ưu tiên.
+- Sửa lỗi tiềm ẩn: `reset()` ở mode async bây giờ bỏ cả quyết định VLM đang chạy dở của video trước (trước đây timeline video mới
+  bắt đầu lại từ 0 nên quyết định cũ có tuổi âm và vẫn được gate dùng).
 
 ## Giới hạn và lưu ý
 

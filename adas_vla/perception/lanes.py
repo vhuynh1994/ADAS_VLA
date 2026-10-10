@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import cv2
@@ -17,6 +18,7 @@ class LaneDetector:
         self.max_missing = max_missing
         self._fits: dict[str, tuple[float, float] | None] = {"left": None, "right": None}
         self._missing = {"left": 0, "right": 0}
+        self.last_timing: dict[str, float] = {}  # stage split of the last call, ms (lane_pre / lane_model)
 
     def reset(self) -> None:
         self._fits = {"left": None, "right": None}
@@ -150,6 +152,8 @@ class YolopLaneDetector(LaneDetector):
         self.half = self.device.type == "cuda"
         model = convert(onnx.load(str(seg))).eval().to(self.device)
         self.model = model.half() if self.half else model
+        self._mean = torch.from_numpy(self.MEAN).to(self.device).view(1, 3, 1, 1)
+        self._std = torch.from_numpy(self.STD).to(self.device).view(1, 3, 1, 1)
         self.drivable: np.ndarray | None = None  # last drivable-area mask (H x W, uint8 0/1)
 
     def _mask(self, frame_bgr: np.ndarray) -> np.ndarray:
@@ -159,12 +163,19 @@ class YolopLaneDetector(LaneDetector):
         scale = self.size / max(h, w)
         nh, nw = round(h * scale), round(w * scale)
         top, left = (self.size - nh) // 2, (self.size - nw) // 2
+        t0 = time.perf_counter()
         canvas = np.full((self.size, self.size, 3), 114, np.uint8)
         canvas[top:top + nh, left:left + nw] = cv2.resize(frame_bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
-        rgb = (cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0 - self.MEAN) / self.STD
-        x = torch.from_numpy(rgb.transpose(2, 0, 1)[None]).to(self.device)
+        # copy uint8 and normalize on the device: same float32 math as on the CPU, 4x fewer bytes, ~4 ms less
+        x = torch.from_numpy(canvas).to(self.device).flip(-1).permute(2, 0, 1)[None].float()  # BGR->RGB, NCHW
+        x = (x / 255.0 - self._mean) / self._std
+        x = x.half() if self.half else x
+        t1 = time.perf_counter()
         with torch.inference_mode():
-            drive, lane = self.model(x.half() if self.half else x)
+            drive, lane = self.model(x)
+        if self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)  # the .cpu() below waits anyway; this puts the wait in lane_model
+        self.last_timing = {"lane_pre": (t1 - t0) * 1000, "lane_model": (time.perf_counter() - t1) * 1000}
         lane = lane[0].argmax(0)[top:top + nh, left:left + nw].to(torch.uint8).cpu().numpy()
         if self.keep_drivable:
             drive = drive[0].argmax(0)[top:top + nh, left:left + nw].to(torch.uint8).cpu().numpy()
