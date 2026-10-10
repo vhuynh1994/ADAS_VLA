@@ -60,6 +60,36 @@ RTX 4060 Laptop 8 GB, i7-13650HX; `data/samples/highway_traffic.mp4` (1280×720,
 
 Gate và controller (Python) dưới 0.05 ms p99, dư rất xa D.
 
+## 3b. Số đo trên board SA8650P (HTP v73, 2 NSP, QNX 8.0, QAIRT 2.46, 2026-10-10)
+
+Context binary `yolo11s_w8a8` (384×640) và `yolop_seg_w8a16` (640×640, chỉ 2 head segmentation), `qnn-net-run`
+`--perf_profile burst`, 300 inference / lần đo, bỏ 10 lần đầu. Thời gian = graph execute mà ứng dụng chờ (RPC + HTP),
+chưa tính pre/post-processing trên CPU. Output trên board **giống hệt bit-by-bit** HTP emulator trên PC (20/20 input,
+cả NSP0 và NSP1), nên accuracy là số đã đo trên PC (detector recall 79 % / precision 80 % so với float, lane IoU 0.94).
+
+| Lần đo (ms) | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| YOLO11s chạy một mình, NSP0 (NSP1 như nhau) | 2.17 | 2.38 | 2.75 | 3.18 |
+| YOLOP chạy một mình, NSP0 (NSP1 như nhau) | 16.18 | 17.21 | 17.29 | 17.41 |
+| YOLO11s, YOLOP chạy liên tục **cùng NSP** | 4.49 | **17.05** | 17.77 | 17.84 |
+| YOLO11s `context_priority: high`, YOLOP `low`, cùng NSP | 2.80 | 3.22 | 3.82 | 3.93 |
+| YOLO11s ở NSP0, YOLOP chạy liên tục ở NSP1 | 2.24 | 2.46 | 3.34 | 3.56 |
+| YOLOP, YOLO11s chạy liên tục cùng NSP | 18.23 | 21.39 | 21.59 | 21.71 |
+| YOLOP ở NSP1, YOLO11s chạy liên tục ở NSP0 | 16.63 | 17.72 | 17.82 | 17.97 |
+
+Nạp context: YOLO11s 12 ms, YOLOP 33 ms.
+
+- Detector: 2.2 ms so với D = 15 ms, dư nhiều (trên GPU PC phần model là 3.8 ms).
+- **YOLOP 640×640 W8A16 vượt ngân sách lane** (16.2 ms so với D = 10 ms) ngay cả trước Hough trên CPU. Hướng xử lý:
+  bản YOLOP 384×640 (ít hơn ~40 % pixel), bỏ head drivable (pipeline không dùng), hoặc T = 2 frame. W8A8 nhanh hơn
+  nhưng lane IoU chỉ 0.77.
+- **HTP không preempt giữa các context cùng priority**: chạy chung NSP với YOLOP, detector p95 tăng từ 2.4 lên
+  17 ms, tức phải chờ trọn một inference YOLOP (đúng rủi ro ở mục 4). Đặt `context_priority` thì detector giữ
+  được max 3.9 ms. Tách hai NSP thì gần như không ảnh hưởng nhau (+3 %, chỉ còn chia băng thông DDR).
+  ⇒ Trên SoC: đường firm (detector) dùng context priority cao; VLM (và có thể cả lane) đặt ở NSP còn lại.
+- Chọn NSP: `device_id` trong file config extension của HTP; NSP1 tìm skel qua biến `CDSP1_LIBRARY_PATH`
+  (`CDSP_LIBRARY_PATH` chỉ áp dụng cho NSP0; thiếu biến này sẽ gặp `qnn_open failed 0x80000406`).
+
 ## 4. Phát hiện
 
 1. **Lane là stage vượt ngân sách lớn nhất.** Ban đầu `lanes` p50 23.3 ms (frame DMR 31 %): normalize float32
@@ -96,4 +126,6 @@ Gate và controller (Python) dưới 0.05 ms p99, dư rất xa D.
 - Lane: fit theo hàng thay cho Hough (so sánh offset_norm với bản hiện tại trên cùng clip) hoặc T = 2 frame.
 - `run --realtime` cho file video: bỏ frame để timeline bám đồng hồ thật như camera live, để gate dùng đúng tuổi.
 - Port C++ gate + controller (golden vectors sẵn sàng), đo WCET bằng vòng lặp 10⁵ lần.
-- Trên board: cùng bảng này với `det_*` / `lane_*` thay bằng thời gian QNN (`qnn-net-run` / profiling HTP).
+- Lane trên HTP: build YOLOP 384×640 chỉ giữ head lane, đo lại trên board (mục tiêu ≤ 10 ms cả post-processing).
+- Trên board: đo cả đường frame (pre-process + HTP + decode/NMS + Hough + gate) bằng một runner C++ thay cho
+  `qnn-net-run`; các số ở mục 3b mới là phần model.
