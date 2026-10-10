@@ -32,3 +32,20 @@ No human reviewed these labels. Instead, quality comes from three layers, and ev
 - `lead`: the nearest object in the ego path at that frame (`cls`, `distance_m`, `closing_speed_mps`, `ttc_s`,
   `cutting_in`) or `null`. `adas-vla eval` replays the safety gate on it and reports under-braking *after* the gate
   (the system) next to the VLM-only number. Rebuild the dataset to get these numbers for `ds_v2` routes.
+
+## Public labelled datasets on disk (downloaded 2026-10-10, not yet used for training)
+
+Not in git (`data/` is ignored). Research / non-commercial use only, see each license.
+
+| Dataset | Where (`data/raw/…`) | What is there | License |
+|---|---|---|---|
+| BDD100K (Berkeley DeepDrive) | `bdd100k` → ADAS_CNN `data/bdd100k` | 100k dashcam frames 1280×720 (70k train / 10k val / 20k test, US, 40 % night); 2018 labels per frame: 2D boxes (car, person, rider, bike, motor, truck, bus, traffic light/sign), **lane polylines** (single/double white/yellow, road curb, crosswalk), drivable / alternative area polygons, weather / scene / time of day; drivable masks (`extra/drivable`, 80k); semantic segmentation (`extra/sem_seg` + `extra/images_10k`, 8k); **GPS (speed, course) 1 Hz + accelerometer / gyro ~50 Hz per 40 s video** (`raw/bdd100k_info.zip`, 100k JSON, 59.6 GB unpacked: read members from the zip) | BAIR: educational, research, not-for-profit (`LICENSE.txt`) |
+| DriveLM-nuScenes | `OpenDriveLab--DriveLM` (SSD) | 696 scenes / 4,072 key frames × 6 cameras (`nuscenes/samples`), 377,956 QA pairs: perception 162k, prediction 124k, planning 88k, behavior 4k (`v1_1_train_nus.json`); val 799 key frames, questions only (`v1_1_val_nus_q_only.json`, `val_data/`) | CC BY-NC-SA 4.0 (gated on Hugging Face; images from nuScenes) |
+| DriveLM-CARLA | same | 187k QA files for CARLA leaderboard-2 key frames (`drivelm_carla_vqas/`, `drivelm_carla_keyframes.txt`); sensor data not downloaded | CC BY-NC-SA 4.0 |
+
+Notes
+- The public BDD100K mirror's `bdd100k_det_20_labels.zip` holds 2,000 tracking-style frames, not the 2020 detection
+  labels; the 2018 labels already have boxes for all 100k frames. Official 2020 lane / detection packages need a login
+  on the BDD100K site.
+- BDD100K GPS speed lets the comma2k19 recipe (label = what the driver did next) run on 100k more frames.
+- nuScenes and Waymo Open need the owner's own registration / license acceptance; not downloaded.
