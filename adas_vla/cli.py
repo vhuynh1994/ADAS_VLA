@@ -232,7 +232,8 @@ def cmd_train(args) -> None:
                          grad_accum=args.grad_accum, lora_r=args.lora_r, val_data=args.val_data,
                          max_class_share=args.max_class_share, init_adapter=args.init_adapter,
                          workers=args.workers, brake_weight=args.brake_weight, optimizer=args.optimizer,
-                         max_steps=args.max_steps))
+                         max_steps=args.max_steps, save_every=args.save_every, resume=args.resume,
+                         log_every=args.log_every))
 
 
 def cmd_eval(args) -> None:
@@ -449,6 +450,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="paged_adamw_8bit (bitsandbytes) keeps the optimizer state small and paged (7B on 8 GB)")
     p.add_argument("--max-steps", type=int, help="stop after N optimizer steps: memory / speed smoke test that "
                    "prints the peak VRAM and the ETA of the full run")
+    p.add_argument("--save-every", type=int, default=0,
+                   help="write a resumable checkpoint to <output>/resume every N optimizer steps (0 = off)")
+    p.add_argument("--resume", action="store_true",
+                   help="continue from <output>/resume if present (survives a crash, a reboot or a suspend)")
+    p.add_argument("--log-every", type=int, default=5, help="print the loss every N optimizer steps")
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("eval", help="evaluate action accuracy / JSON validity / latency on a dataset")

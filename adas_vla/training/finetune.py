@@ -10,6 +10,7 @@ import json
 import math
 import os
 import random
+import shutil
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -42,6 +43,13 @@ class TrainArgs:
     brake_weight: float = 1.0  # loss multiplier for samples labelled DECELERATE / BRAKE / STOP (targets under-braking)
     optimizer: str = "adamw"  # adamw | paged_adamw_8bit (bitsandbytes: 8-bit, paged optimizer state; 7B on 8 GB)
     max_steps: int | None = None  # stop after this many optimizer steps (smoke test: peak memory + ETA of the full run)
+    save_every: int = 0  # write a resumable checkpoint (<output_dir>/resume/state.pt) every N optimizer steps (0 = off)
+    resume: bool = False  # continue from <output_dir>/resume/state.pt if it exists (same run settings required)
+
+
+# Settings that must match between a checkpoint and the run resuming it.
+RESUME_KEYS = ("data", "epochs", "lr", "grad_accum", "lora_r", "seed", "max_class_share", "init_adapter",
+               "brake_weight", "optimizer")
 
 
 def label_key(rec: dict) -> tuple[str, str]:
@@ -114,6 +122,51 @@ def build_optimizer(params, name: str, lr: float):
 
 def _to_device(batch: dict, device) -> dict:
     return {k: v.to(device) if hasattr(v, "to") else v for k, v in batch.items()}
+
+
+def save_resume_state(path: Path, *, model, optimizer, scheduler, step: int, epoch: int, next_i: int,
+                      order: list[int], rng: random.Random, elapsed: float, run: dict) -> None:
+    """Everything needed to continue a run exactly where it stopped, written atomically (tmp file + rename)."""
+    import torch
+
+    state = {
+        "trainable": {n: p.detach().cpu() for n, p in model.named_parameters() if p.requires_grad},
+        "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
+        "step": step, "epoch": epoch, "next_i": next_i, "order": order,
+        "rng": rng.getstate(), "py_random": random.getstate(), "torch_rng": torch.get_rng_state(),
+        "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        "elapsed": elapsed, "run": run,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    torch.save(state, tmp)
+    os.replace(tmp, path)
+
+
+def load_resume_state(path: Path, *, model, optimizer, scheduler, rng: random.Random, run: dict) -> dict:
+    """Restore a save_resume_state() checkpoint into a freshly built model / optimizer / scheduler; returns the
+    loop position (step, epoch, next_i, order, elapsed). Refuses a checkpoint made with other run settings."""
+    import torch
+
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    diff = {k: (state["run"].get(k), run.get(k)) for k in run if state["run"].get(k) != run.get(k)}
+    if diff:
+        raise SystemExit(f"{path} was written by a run with other settings {diff}; delete it or match them")
+    params = dict(model.named_parameters())
+    missing = [n for n in state["trainable"] if n not in params]
+    if missing:
+        raise SystemExit(f"{path}: {len(missing)} trainable tensors not in the model (e.g. {missing[0]})")
+    with torch.no_grad():
+        for n, t in state["trainable"].items():
+            params[n].copy_(t.to(params[n].device, params[n].dtype))
+    optimizer.load_state_dict(state["optimizer"])
+    scheduler.load_state_dict(state["scheduler"])
+    rng.setstate(state["rng"])
+    random.setstate(state["py_random"])
+    torch.set_rng_state(state["torch_rng"])
+    if state["cuda_rng"] is not None and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["cuda_rng"])
+    return {k: state[k] for k in ("step", "epoch", "next_i", "order", "elapsed")}
 
 
 class _Examples:
@@ -194,11 +247,29 @@ def train(cfg: Config, args: TrainArgs) -> None:
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    resume_path = out_dir / "resume" / "state.pt"
+    run = {**{k: getattr(args, k) for k in RESUME_KEYS}, "model": cfg.vlm.model_id,
+           "quantize_vision": cfg.vlm.quantize_vision, "prev_frame_s": cfg.vlm.prev_frame_s}
     step, running, t0 = 0, 0.0, time.time()
-    for epoch in range(args.epochs):
+    start_epoch, start_i, resume_order = 0, 0, None
+    if args.resume and resume_path.exists():
+        pos = load_resume_state(resume_path, model=model, optimizer=optimizer, scheduler=scheduler, rng=rng, run=run)
+        step, start_epoch, start_i, resume_order = pos["step"], pos["epoch"], pos["next_i"], pos["order"]
+        t0 -= pos["elapsed"]
+        print(f"Resumed from {resume_path}: step {step}/{total_steps}, epoch {start_epoch + 1}, "
+              f"sample {start_i}/{len(resume_order)}", flush=True)
+    elif args.resume:
+        print(f"No checkpoint at {resume_path}: starting from scratch", flush=True)
+    for epoch in range(start_epoch, args.epochs):
         model.train()
-        order = balanced_epoch(records, args.max_class_share, rng)
-        for i, (rec_idx, example) in enumerate(zip(order, _loader(processor, records, order, cfg, args.workers))):
+        if resume_order is not None:  # the interrupted epoch: same order, rng already past it
+            order, resume_order = resume_order, None
+        else:
+            order = balanced_epoch(records, args.max_class_share, rng)
+        first = start_i if epoch == start_epoch else 0
+        rest = order[first:]
+        for j, (rec_idx, example) in enumerate(zip(rest, _loader(processor, records, rest, cfg, args.workers))):
+            i = first + j
             batch = _to_device(example, device)
             loss = model(**batch).loss * sample_weight(records[rec_idx], args.brake_weight) / args.grad_accum
             loss.backward()
@@ -216,6 +287,10 @@ def train(cfg: Config, args: TrainArgs) -> None:
                           f"lr {scheduler.get_last_lr()[0]:.2e} peak_mem {mem:.1f}GB "
                           f"elapsed {elapsed:.0f}s eta {elapsed / step * (total_steps - step) / 60:.0f}min", flush=True)
                 running = 0.0
+                if args.save_every and step % args.save_every == 0:
+                    save_resume_state(resume_path, model=model, optimizer=optimizer, scheduler=scheduler, step=step,
+                                      epoch=epoch, next_i=i + 1, order=order, rng=rng, elapsed=time.time() - t0,
+                                      run=run)
                 if args.max_steps and step >= args.max_steps:
                     break
         if args.max_steps and step >= args.max_steps:
@@ -229,6 +304,8 @@ def train(cfg: Config, args: TrainArgs) -> None:
     meta = {"base_model": cfg.vlm.model_id, "quantization": cfg.vlm.quantization,
             "image_size": cfg.vlm.image_size, "language": cfg.vlm.language, "train": asdict(args)}
     (out_dir / "adas_vla_meta.json").write_text(json.dumps(meta, indent=2))
+    if not (args.max_steps and step >= args.max_steps) and resume_path.exists():
+        shutil.rmtree(resume_path.parent)  # finished: a later --resume must not continue a completed run
     print(f"Saved LoRA adapter to {out_dir}. Use it with: --set vlm.adapter_path={out_dir}")
 
 

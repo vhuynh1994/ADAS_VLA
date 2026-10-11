@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (101 tests with torch; without it `tests/test_merge.py` is skipped as one item: 97 passed, 1 skipped; must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (103 tests with torch; without it `tests/test_merge.py` and `tests/test_resume.py` are skipped: 97 passed, 2 skipped; must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -187,6 +187,17 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   --lora-r 8"` and `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`: peak_mem 7.2 GB, 20.2 s per optimizer step,
   3033 steps (balanced epoch 8088 samples x 3 / grad-accum 8) = 17.0 h. Log: `outputs/v5_7b.log` (first try:
   `outputs/v5_7b_try1_oom.log`).
+- 2026-10-11: the first full run reached step 730/3033 (loss 1.13 -> ~0.05) when the laptop lid was closed at 00:40:
+  suspend hung the CUDA context (GPU 0 % after resume) and the trainer only saved at the end, so ~4 h were lost.
+  Since then: `adas-vla train --save-every N --resume` (`training/finetune.py: save_resume_state /
+  load_resume_state`: LoRA tensors, optimizer incl. bitsandbytes 8-bit state, scheduler, epoch order + position,
+  python/torch/CUDA RNG, written atomically to `<output>/resume/state.pt` (122 MB for the 7B r8); refused if the run
+  settings differ; removed when a run completes; `tests/test_resume.py`). GPU check with the real 7B config: resumed
+  at sample 16/8088, identical LR, no extra VRAM (7.2 GB), loss of the next steps within 0.1-0.4 % of an uninterrupted
+  run (two uninterrupted runs differ by ~0.03 %: non-deterministic kernels). `pipeline_v5_7b.sh` now trains with
+  `--save-every 100 --resume`, skips the smoke / a finished training on a rerun, and re-executes itself under
+  `systemd-inhibit --what=sleep:handle-lid-switch` (no password needed for the active session; `NO_INHIBIT=1` to
+  opt out). Restarted 2026-10-11 07:26 (`SKIP_SMOKE=1`, same V5_EXTRA / TRAIN_EXTRA / expandable_segments).
 - Decision rule unchanged: v5 becomes the default (`configs/default.yaml: vlm.model_id`) only if it wins on
   under-braking first on the fixed val split, then on joint accuracy; keep the Nexar crash test as the second table.
 
