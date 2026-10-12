@@ -117,9 +117,11 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   `scripts/qnn_fp16_overrides.py`; QAIRT 2.46 takes overrides in qairt-converter). Every layer >= 18.9 dB; boxes 37.3 dB,
   scores 28.0 dB (W8A8 22.2 / 15.7). Object-level vs float on the 20 held-out frames: 105/106 found (small 62/63,
   medium 26/26, large 17/17), 0 extra boxes; W8A8 (the binary on the board) 84/106 with large 13/17 and 28 extra boxes.
-  The O3 + VTCM 8 MB context binary gives bit-identical outputs to the DLC run (40/40). Board latency not measured yet
-  (board unreachable 2026-10-12); bundle script `run_yolo_fp16.sh` ready. The board's current yolo11s_w8a8.bin was
-  built with the default config (O0 / VTCM 4 MB), like the old YOLOP binary.
+  The O3 + VTCM 8 MB context binary gives bit-identical outputs to the DLC run on the emulator (40/40). On the board:
+  4.88 ms p50 (W8A8 default build 2.16 ms, W8A8 O3 + VTCM 8 2.03 ms); outputs differ slightly from the emulator (FP16 on
+  the chip, score <= 0.016) but the board detections are the same: 105/106, 0 extra. Live board pipeline: 33.5 ms p50
+  (31.0 with W8A8), 1.30 objects/frame on highway_traffic vs 1.39 for the float PC model (W8A8: 2.02). Now the default
+  `DET` of `board/board_server.sh`; boxes are uint16 (0.01 px steps instead of 2.58 px).
 
 ## Changes 2026-10-10 (cloud session: code + tests only, NOT yet run on the GPU)
 - `perception/depth.py`: Depth-Anything distance refinement. `DepthModel` (backends `transformers` = HF checkpoint,

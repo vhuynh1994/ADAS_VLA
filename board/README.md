@@ -28,7 +28,7 @@ Xem trực tiếp: `bash board/demo.sh <video>` mở cửa sổ (qua `systemd-ru
 nên video 4K vẫn vừa màn hình; `--display-width 0` = kích thước gốc.
 
 `$DIR` trên board phải có `lib/` (libQnnHtp.so, libQnnHtpV73Stub.so, libQnnSystem.so cho aarch64-qnx800) và
-`models/` (`yolo11s_w8a8.bin`, `yolop_lane_w8a16_o3v8.bin`); đổi bằng biến `DIR`, `DET`, `LANE`, `PORT` (mặc định
+`models/` (`yolo11s_w8a16_p5fp16_o3v8.bin` hoặc bản cũ `yolo11s_w8a8.bin`, `yolop_lane_w8a16_o3v8.bin`); đổi bằng biến `DIR`, `DET`, `LANE`, `PORT` (mặc định
 50052). Từ terminal VS Code (snap) mở cửa sổ qua
 `systemd-run --user --collect -p WorkingDirectory=$PWD $PWD/.venv/bin/adas-vla run ... --show`.
 Có thể bật VLM trên GPU của PC cùng lúc: bỏ `--no-vlm`, thêm `--vlm-mode process`.
@@ -59,6 +59,21 @@ Có thể bật VLM trên GPU của PC cùng lúc: bỏ `--no-vlm`, thêm `--vlm
 
 Chạy cả HUD + ghi video: 21.6 FPS. Trên xe thật camera nối thẳng vào board nên không có chặng mạng và JPEG; phần
 còn lại đáng tối ưu là fit lane trên CPU và giải JPEG + lượng tử trên board (một luồng).
+
+## Detector W8A16 + đường stride 32 FP16 (12/10/2026, mặc định từ nay)
+
+Bản W8A8 cũ bỏ sót vật lớn (xe gần) và sinh box thừa; W8A16 thuần thì hỏng từ layer 8 (phép nhân SiLU 16-bit ở stride 32,
+không phải attention C2PSA). Giữ đường stride 32 ở FP16 (`scripts/qnn_fp16_overrides.py`), phần còn lại W8A16, O3 + VTCM 8:
+
+| YOLO11s trên HTP NSP0 | latency p50 | So với float, 20 ảnh (vật nhỏ / vừa / lớn, box thừa) | Vật/frame trên highway_traffic (float PC: 1.39) |
+|---|---|---|---|
+| W8A8 (cũ, cấu hình mặc định) | 2.16 ms | 73 % / 96 % / 76 %, 28 box thừa | 2.02 |
+| W8A8, O3 + VTCM 8 | 2.03 ms | như trên | – |
+| **W8A16 + P5 FP16, O3 + VTCM 8** | **4.88 ms** | **98 % / 100 % / 100 %, 0 box thừa** (đo trên board) | **1.30** |
+
+Output trên board lệch nhẹ so với emulator (score lệch ≤ 0.016, do phép FP16 trên chip) nhưng kết quả phát hiện giống hệt.
+Box là uint16 với bước 0.01 px (W8A8: 2.58 px), nên khoảng cách theo chiều cao box ít bị nhiễu lượng tử hơn. Cả pipeline
+trên board: 33.5 ms p50 (W8A8: 31.0 ms), 21.7 FPS kể cả HUD.
 
 ## Giao thức
 

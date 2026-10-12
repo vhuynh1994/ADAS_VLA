@@ -8,7 +8,7 @@ set -euo pipefail
 BOARD=${BOARD:-root@192.168.0.73}
 DIR=${DIR:-/data/adas_vla_perf}
 PORT=${PORT:-50052}
-DET=${DET:-models/yolo11s_w8a8.bin}
+DET=${DET:-models/yolo11s_w8a16_p5fp16_o3v8.bin}  # W8A16 + stride-32 path FP16 (CLAUDE.md 2026-10-12); old: yolo11s_w8a8.bin
 LANE=${LANE:-models/yolop_lane_w8a16_o3v8.bin}
 HERE=$(cd "$(dirname "$0")" && pwd)
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=8 $BOARD"
