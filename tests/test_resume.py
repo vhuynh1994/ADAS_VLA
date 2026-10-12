@@ -7,6 +7,13 @@ torch = pytest.importorskip("torch")
 from adas_vla.training.finetune import load_resume_state, save_resume_state  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _cpu_only(monkeypatch):
+    # optimizer.step() checks for CUDA graph capture, which opens a CUDA context and fails while a training run
+    # fills the GPU; these tests are CPU-only
+    monkeypatch.setattr(torch.accelerator, "current_accelerator", lambda *a, **k: None)
+
+
 def _setup(seed: int = 0):
     torch.manual_seed(seed)
     model = torch.nn.Sequential(torch.nn.Linear(4, 8), torch.nn.Dropout(0.2), torch.nn.Linear(8, 1))

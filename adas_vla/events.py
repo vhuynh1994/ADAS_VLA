@@ -37,6 +37,14 @@ def frame_record(res) -> dict:
         "decision": res.decision.to_dict(), "alerts": [a.__dict__ for a in res.alerts],
         "command": {k: (v.value if hasattr(v, "value") else round(v, 3)) for k, v in res.command.__dict__.items()},
         "objects": [d.describe() for d in res.context.detections],
+        # geometry for offline analysis: box, class, track, distance, closing speed, TTC, in path / cutting in
+        "dets": [[*(round(v, 1) for v in d.box), d.cls_name, d.track_id,
+                  None if d.distance_m is None else round(d.distance_m, 1),
+                  None if d.closing_speed_mps is None else round(d.closing_speed_mps, 2),
+                  None if d.ttc_s is None else round(d.ttc_s, 2), d.in_ego_path, d.cutting_in]
+                 for d in res.context.detections],
+        "lanes": {"left": res.context.lanes.left_fit, "right": res.context.lanes.right_fit,
+                  "y_top": res.context.lanes.y_top, "width": res.context.width, "height": res.context.height},
         "timing": {k: round(v, 3) for k, v in res.timing.items()},
         "vlm_age_s": None if res.vlm_age_s is None else round(res.vlm_age_s, 3),
         "vlm_age_wall_s": None if res.vlm_age_wall_s is None else round(res.vlm_age_wall_s, 3),

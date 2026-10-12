@@ -154,7 +154,8 @@ def save_resume_state(path: Path, *, model, optimizer, scheduler, step: int, epo
         "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
         "step": step, "epoch": epoch, "next_i": next_i, "order": order,
         "rng": rng.getstate(), "py_random": random.getstate(), "torch_rng": torch.get_rng_state(),
-        "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        # only when this process uses CUDA (training always does): querying it would otherwise create a context
+        "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() and torch.cuda.is_initialized() else None,
         "elapsed": elapsed, "run": run,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
