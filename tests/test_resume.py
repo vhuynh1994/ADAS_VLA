@@ -67,3 +67,29 @@ def test_resume_refuses_other_settings(tmp_path):
                       rng=random.Random(0), elapsed=1.0, run={"lr": 1e-2})
     with pytest.raises(SystemExit):
         load_resume_state(path, model=model, optimizer=opt, scheduler=sched, rng=random.Random(0), run={"lr": 2e-4})
+
+
+class _FakeOut:
+    def __init__(self, loss):
+        self.loss = loss
+
+
+class _FakeModel:
+    """Linear 'model' that runs out of memory on long samples."""
+
+    def __init__(self):
+        self.w = torch.nn.Parameter(torch.ones(3))
+
+    def __call__(self, x, length):
+        if int(length) > 300:
+            raise torch.OutOfMemoryError("CUDA out of memory (simulated)")
+        return _FakeOut((self.w * x).sum())
+
+
+def test_micro_step_survives_out_of_memory():
+    from adas_vla.training.finetune import _micro_step
+
+    model = _FakeModel()
+    ok = _micro_step(model, {"x": torch.ones(3), "length": torch.tensor(100)}, "cpu", weight=2.0, grad_accum=4)
+    assert ok == pytest.approx(1.5) and torch.equal(model.w.grad, torch.full((3,), 0.5))
+    assert _micro_step(model, {"x": torch.ones(3), "length": torch.tensor(314)}, "cpu", 1.0, 4) is None

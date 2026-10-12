@@ -124,6 +124,26 @@ def _to_device(batch: dict, device) -> dict:
     return {k: v.to(device) if hasattr(v, "to") else v for k, v in batch.items()}
 
 
+MAX_OOM_SKIPS = 20  # more than this many out-of-memory windows in one run is a setup problem, not a long sample
+
+
+def _micro_step(model, example: dict, device, weight: float, grad_accum: int) -> float | None:
+    """Forward + backward of one sample; returns its (scaled) loss, or None when the GPU ran out of memory.
+
+    The 7B on the 8 GB card has ~0.4 GB of headroom: the longest sample of ds_v3 (314 text tokens vs 109 median) made
+    the 2026-10-11 run fail at step 1458. The caller then drops the accumulation window and goes on. Nothing is
+    cleaned up inside the except block, so the traceback and the tensors it references are released first."""
+    import torch
+
+    try:
+        loss = model(**_to_device(example, device)).loss * weight / grad_accum
+        loss.backward()
+        return loss.item()
+    except torch.OutOfMemoryError:
+        pass
+    return None
+
+
 def save_resume_state(path: Path, *, model, optimizer, scheduler, step: int, epoch: int, next_i: int,
                       order: list[int], rng: random.Random, elapsed: float, run: dict) -> None:
     """Everything needed to continue a run exactly where it stopped, written atomically (tmp file + rename)."""
@@ -250,7 +270,7 @@ def train(cfg: Config, args: TrainArgs) -> None:
     resume_path = out_dir / "resume" / "state.pt"
     run = {**{k: getattr(args, k) for k in RESUME_KEYS}, "model": cfg.vlm.model_id,
            "quantize_vision": cfg.vlm.quantize_vision, "prev_frame_s": cfg.vlm.prev_frame_s}
-    step, running, t0 = 0, 0.0, time.time()
+    step, running, t0, n_oom = 0, 0.0, time.time(), 0
     start_epoch, start_i, resume_order = 0, 0, None
     if args.resume and resume_path.exists():
         pos = load_resume_state(resume_path, model=model, optimizer=optimizer, scheduler=scheduler, rng=rng, run=run)
@@ -268,17 +288,29 @@ def train(cfg: Config, args: TrainArgs) -> None:
             order = balanced_epoch(records, args.max_class_share, rng)
         first = start_i if epoch == start_epoch else 0
         rest = order[first:]
+        window_ok = 0  # samples whose gradients are in the current accumulation window
         for j, (rec_idx, example) in enumerate(zip(rest, _loader(processor, records, rest, cfg, args.workers))):
             i = first + j
-            batch = _to_device(example, device)
-            loss = model(**batch).loss * sample_weight(records[rec_idx], args.brake_weight) / args.grad_accum
-            loss.backward()
-            running += loss.item()
-            if (i + 1) % args.grad_accum == 0 or i == len(order) - 1:
-                torch.nn.utils.clip_grad_norm_(params, 1.0)
-                optimizer.step()
-                scheduler.step()
+            loss = _micro_step(model, example, device, sample_weight(records[rec_idx], args.brake_weight),
+                               args.grad_accum)
+            if loss is None:  # out of GPU memory: the window's gradients may be partial, drop them all
                 optimizer.zero_grad(set_to_none=True)
+                torch.cuda.empty_cache()
+                window_ok, running, n_oom = 0, 0.0, n_oom + 1
+                print(f"out of GPU memory on sample {records[rec_idx].get('id', rec_idx)} (epoch {epoch + 1}, "
+                      f"step {step + 1}): dropped this accumulation window ({n_oom} so far)", flush=True)
+                if n_oom > MAX_OOM_SKIPS:
+                    raise SystemExit(f"{n_oom} out-of-memory windows: reduce memory (lora_r, quantize_vision, ...)")
+            else:
+                running += loss
+                window_ok += 1
+            if (i + 1) % args.grad_accum == 0 or i == len(order) - 1:
+                if window_ok:
+                    torch.nn.utils.clip_grad_norm_(params, 1.0)
+                    optimizer.step()
+                scheduler.step()  # the schedule and the step count stay aligned with total_steps (and resume)
+                optimizer.zero_grad(set_to_none=True)
+                window_ok = 0
                 step += 1
                 if step % args.log_every == 0 or step == total_steps or step == args.max_steps:
                     mem = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0

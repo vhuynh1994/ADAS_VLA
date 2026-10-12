@@ -14,7 +14,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   incl. the fine-tuned `models/adas-vlm-v3`), `data/` (datasets + labels), `checkpoints/`, `outputs/`.
 - A cloud session has no GPU and none of those files: edit code, add features, write/run unit tests, update docs.
   Training, evaluation and demos must run on the owner's PC.
-- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (103 tests with torch; without it `tests/test_merge.py` and `tests/test_resume.py` are skipped: 97 passed, 2 skipped; must stay green; the same
+- Unit tests need no GPU or models: `pip install -e ".[dev]"` then `pytest -q` (104 tests with torch; without it `tests/test_merge.py` and `tests/test_resume.py` are skipped: 97 passed, 2 skipped; must stay green; the same
   suite runs in GitHub Actions on Python 3.10 and 3.12 with only numpy/opencv/pillow/pyyaml/pytest installed).
 
 ## Current status (2026-09-28)
@@ -198,6 +198,12 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   `--save-every 100 --resume`, skips the smoke / a finished training on a rerun, and re-executes itself under
   `systemd-inhibit --what=sleep:handle-lid-switch` (no password needed for the active session; `NO_INHIBIT=1` to
   opt out). Restarted 2026-10-11 07:26 (`SKIP_SMOKE=1`, same V5_EXTRA / TRAIN_EXTRA / expandable_segments).
+- 2026-10-11 15:39: out of memory at step ~1458/3033 (epoch 2): the window held the longest sample of ds_v3
+  (`nexar_00693_s1`, 314 text tokens; median 109, p99 213) and backward needed 490 MB with 451 MB free (~0.4 GB of
+  headroom for the 7B on 8 GB). The step-1400 checkpoint survived. Training now catches `torch.OutOfMemoryError`
+  per sample (`finetune._micro_step`): it drops that accumulation window (gradients may be partial), empties the
+  cache, logs the sample id and goes on; the scheduler still steps so resume stays aligned; more than 20 such windows
+  abort the run. Resumed 2026-10-12 15:06 from step 1400 (log of the failed part: `outputs/v5_7b_try3_oom1458.log`).
 - Decision rule unchanged: v5 becomes the default (`configs/default.yaml: vlm.model_id`) only if it wins on
   under-braking first on the fixed val split, then on joint accuracy; keep the Nexar crash test as the second table.
 
