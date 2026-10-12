@@ -104,6 +104,23 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
 - Fixed a latent bug: `reset()` in async mode now drops the previous video's VLM result (timeline restarts at 0, so
   the old decision had a negative age and passed the gate's freshness check).
 
+## YOLO11s W8A16 on the SA8650P HTP: root cause and mixed-precision fix (2026-10-12, PC emulator)
+- The 2026-10-05 note "W8A16 breaks in the C2PSA attention" was wrong about the place. Layer-wise SQNR (HTP emulator
+  `qnn-net-run --debug` vs ONNX Runtime, `scripts/qnn_layerwise.py`): W8A16 is 21-32 dB through layers 0-7 (W8A8: 7-22)
+  and collapses at layer 8 (C3k2, stride 32) in the 16-bit SiLU multiply `/model.8/m.0/cv1/act/Mul` (inputs 25 / 33 dB,
+  output -6 dB; it disagrees even with x*sigmoid(x) of its own quantized inputs, corr 0.45). C2PSA only inherits it.
+  Forcing that one Mul to FP16 moved the breakage to other stride-32 SiLU multiplies (12x20 tensors): an HTP 16-bit
+  elementwise problem at that size, not a single bad encoding. `--restrict_quantization_steps` is not the cause
+  (same -6 dB without it; it is only needed because the 16-bit attention MatMul wants a symmetric input, which the
+  `attn_softmax_sym.json` overrides give without the global flag).
+- Fix: W8A16 with the whole stride-32 path in FP16 (layers 8-10, 20-22, P5 head branch: 131 tensors,
+  `scripts/qnn_fp16_overrides.py`; QAIRT 2.46 takes overrides in qairt-converter). Every layer >= 18.9 dB; boxes 37.3 dB,
+  scores 28.0 dB (W8A8 22.2 / 15.7). Object-level vs float on the 20 held-out frames: 105/106 found (small 62/63,
+  medium 26/26, large 17/17), 0 extra boxes; W8A8 (the binary on the board) 84/106 with large 13/17 and 28 extra boxes.
+  The O3 + VTCM 8 MB context binary gives bit-identical outputs to the DLC run (40/40). Board latency not measured yet
+  (board unreachable 2026-10-12); bundle script `run_yolo_fp16.sh` ready. The board's current yolo11s_w8a8.bin was
+  built with the default config (O0 / VTCM 4 MB), like the old YOLOP binary.
+
 ## Changes 2026-10-10 (cloud session: code + tests only, NOT yet run on the GPU)
 - `perception/depth.py`: Depth-Anything distance refinement. `DepthModel` (backends `transformers` = HF checkpoint,
   `onnx` = static-shape export such as Qualcomm AI Hub `depth_anything_v2`), `DepthFrame` (per-detection map statistic
