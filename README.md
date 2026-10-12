@@ -308,7 +308,7 @@ car↔truck, ước lượng xa hơn thật với bbox bị cắt). `perception/
   Chỉ bật mặc định (`perception.depth.enabled: true`) nếu AEB sai trên clip bình thường giảm mà AEB trong cửa sổ nguy
   hiểm Nexar không giảm.
 
-## Vòng 5 (chuẩn bị, chưa chạy): base model Qwen2.5-VL-7B-Instruct
+## Vòng 5 (đã chạy 10–13/10/2026, không dùng làm mặc định): base model Qwen2.5-VL-7B-Instruct
 
 Qwen2.5-VL-7B là cỡ Qualcomm AI Hub phát hành bản tối ưu (`qwen2_5_vl_7b_instruct`, Genie w4a16, có SA8650P / SA8775P)
 và dùng license Apache-2.0 (bản 3B là Qwen Research, phi thương mại). Cùng kiến trúc với 3B nên dataset, prompt,
@@ -322,6 +322,10 @@ và dùng license Apache-2.0 (bản 3B là Qwen Research, phi thương mại). C
   (16 GB RAM) vào bộ nhớ; `--full` là đường cũ qua peft.
 - Nếu smoke hết VRAM: `V5_EXTRA="--set vlm.quantize_vision=true"` cho mọi bước 7B và
   `TRAIN_EXTRA="--optimizer paged_adamw_8bit --lora-r 8"`. v5 chỉ thành mặc định nếu thắng v3 ở under-braking trước.
+- **Kết quả (13/10/2026):** trên tập val, v5 phanh thiếu ít hơn (9,1% → 7,1%, p = 0,008) nhưng phanh thừa nhiều hơn
+  (9,1% → 12,0%), độ chính xác tổng 73,1% → 71,1%. Trên tập crash Nexar, v5 **phanh thiếu gấp 3 lần** (3,5% → 10,1%,
+  p < 0,001: 30 frame cần phanh bị đoán KEEP, v3 chỉ 5). Độ trễ trên PC 0,87 s → 1,53 s, vượt ngân sách 1 s; trong demo
+  live là 2,0 s. **Giữ v3 làm mặc định.**
 
 ## Giới hạn và lưu ý
 

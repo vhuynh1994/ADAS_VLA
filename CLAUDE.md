@@ -181,7 +181,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
   not run. Decision: `perception.depth.enabled` stays false, ds_v3 not rebuilt. If depth is revisited: estimate the
   horizon (lane vanishing point, or a per-source `camera` pitch) before the ground anchors, then re-test.
 
-## Round 5 plan (2026-10-10, cloud session: prepared, NOT yet run): base model Qwen2.5-VL-7B-Instruct
+## Round 5 (2026-10-10 .. 10-13): base model Qwen2.5-VL-7B-Instruct - trained, NOT adopted (v3 stays default)
 Owner's decision. Why: the 7B is the Qwen2.5-VL size Qualcomm AI Hub ships optimized (`qwen2_5_vl_7b_instruct`,
 Genie w4a16; SA8650P / SA8775P / SA8255P ADP listed) and it is Apache-2.0 (the 3B is Qwen Research, non-commercial).
 Same architecture as the 3B: dataset, prompts, `encode_messages`, `LORA_TARGET_REGEX`, 2-frame input and the
@@ -225,6 +225,27 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   abort the run. Resumed 2026-10-12 15:06 from step 1400 (log of the failed part: `outputs/v5_7b_try3_oom1458.log`).
 - Decision rule unchanged: v5 becomes the default (`configs/default.yaml: vlm.model_id`) only if it wins on
   under-braking first on the fixed val split, then on joint accuracy; keep the Nexar crash test as the second table.
+- Result (2026-10-13 01:15; training ended 00:31 at step 3033, 7 out-of-memory windows dropped in total, final loss
+  ~0.02; merged model `models/adas-vlm-v5`, eval with the 4-bit ViT as trained). Paired McNemar tests v3 vs v5:
+
+  | set | metric | v3 | v5 | only v3 / only v5 | p |
+  |---|---|---|---|---|---|
+  | val (900) | under-braking VLM | 9.1 % | **7.1 %** | 30 / 12 | 0.008 |
+  | val | under-braking VLM + gate | 8.0 % | 6.4 % | 25 / 11 | 0.029 |
+  | val | over-braking (pred > gt, >= DECELERATE) | **9.1 %** | 12.0 % | 25 / 51 | 0.004 |
+  | val | joint accuracy | 73.1 % | 71.1 % | 73 / 55 | 0.13 |
+  | Nexar (424) | under-braking VLM | **3.5 %** | 10.1 % | 5 / 33 | <0.001 |
+  | Nexar | under-braking VLM + gate | **3.3 %** | 9.2 % | 5 / 30 | <0.001 |
+  | Nexar | over-braking | 32.8 % | **24.1 %** | 48 / 11 | <0.001 |
+  | Nexar | joint accuracy | 63.7 % | 65.8 % | 44 / 53 | 0.42 |
+  | both | latency p50 (PC eval) | **0.87 s** | 1.53 s | | |
+
+  v5 is more cautious on ordinary driving but misses crash frames: 30 Nexar BRAKE samples predicted KEEP (v3: 5).
+  Latency 1.5 s is over the 1 s budget; in the live demo (`outputs/demo_crash_v5.mp4`, perception on the same GPU)
+  the VLM takes 2.0 s p50 and its decision is older than 2 s in 95 % of frames, so the rule ACC of the gate drives
+  almost all the time. Cautious policy on v5 (`sweep_policy.py`, thresholds 0.1/0.1): Nexar under-braking 0.2 % but
+  over-braking 51.7 % - unusable. Decision: keep v3. Open questions: v5 with the bf16 ViT (needs > 8 GB to train),
+  and the 7B on the board via AI Hub Genie w4a16, where its latency would have to be measured.
 
 ## Ego corridor in metres + oncoming exclusion (2026-10-12, CPU replay; now the default)
 - Cause of the false AEB/FCW on the UK demo (`outputs/uk_p5_base.jsonl`, AEB 35 % of frames): lane corridor median
