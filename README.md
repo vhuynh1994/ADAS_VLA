@@ -231,6 +231,13 @@ Hold/hysteresis của AEB kéo dài các phát hiện sai của perception đơn
   KEEP bị AEB 16% → 1,5%; SUV cắt làn ở 5 m (clip va chạm) vẫn được AEB lúc 9,3 s. Đánh đổi: trong đoạn nguy hiểm
   của Nexar AEB bật ở 53% video (cửa sổ đối chứng cùng độ dài: 25%) so với 76% (35%) trước đây; FCW hoặc AEB vẫn phản
   ứng ở 90%. `safety.aeb_confirm_s: 0` = không xác nhận.
+- **Corridor tính bằng mét + bỏ xe ngược chiều (12/10/2026):** corridor theo lane trên đường rộng (hoặc khi bắt nhầm vạch
+  của làn bên) rộng tới ~8 m nên xe đỗ và xe ngược chiều thành "trong đường đi". Giờ xe chỉ được coi là trong đường đi khi
+  nằm trong ±1,2 m quanh trục camera (`perception.corridor_half_width_m`; hình học mặt đường phẳng, đường chân trời lấy từ
+  điểm tụ của lane). Người đi bộ/xe đạp và phép đo cắt làn vẫn dùng corridor theo lane. Xe lại gần nhanh hơn tốc độ xe
+  mình (ngược chiều) không là xe dẫn đầu, trừ khi đang cắt vào đường đi hoặc lao thẳng vào (`perception.exclude_oncoming`).
+  Replay 136 clip: AEB sai khi lái bình thường 9,3% → 7,5% thời gian, cảnh báo trong đoạn nguy hiểm Nexar 90,1% → 89,2%
+  (3 clip đổi đều không phải cảnh báo hữu ích bị mất), phản ứng phanh AU giữ 88%; log video UK: AEB 35% → 16% số frame.
 - **Policy `cautious_gated` không dùng:** trên val v3, under-braking chỉ giảm 8,8% → 7,0% trong khi phanh thừa tăng
   14,8% → 24,2%; hầu hết ca phanh thiếu không có dấu hiệu nguy hiểm nào trong perception.
 - **Dataset `ds_v3`** = đúng các mẫu của `ds_v2` build lại với perception mới (`build-dataset comma2k19 --only-from`,

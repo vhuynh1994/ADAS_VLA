@@ -7,7 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ..config import CameraConfig, DepthConfig
+from ..config import CameraConfig, Config, DepthConfig
 from ..types import VEHICLE_CLASSES, Detection, LaneInfo
 
 if TYPE_CHECKING:  # perception.depth imports this module; the runtime import below is lazy
@@ -23,6 +23,8 @@ NOT_OBSTACLES = ("traffic light", "stop sign")
 MIN_TOP_FRACTION = 0.5  # a clipped close object's visible top is at least this fraction of its class height
 CLIP_MARGIN = 0.03  # a box ending within this fraction of the frame height from the bottom edge is "clipped"
 BOX_ANCHOR_RANGE_M = (5.0, 80.0)  # pinhole distances of full vehicle boxes usable as depth-alignment anchors
+HORIZON_RANGE = (0.3, 0.75)  # plausible horizon rows (fraction of the height) of a lane vanishing point
+MIN_GROUND_DY = 0.02  # rows below the horizon (fraction of the height) used for ground points at or above it
 
 
 def focal_length_px(image_width: int, hfov_deg: float) -> float:
@@ -93,6 +95,34 @@ def ego_corridor(y: float, lanes: LaneInfo, width: int, height: int) -> tuple[fl
     return default_corridor(y, width, height)
 
 
+def lane_horizon(lanes: LaneInfo, height: int) -> float | None:
+    """Image row where the two lane lines meet (their vanishing point: the horizon of a flat road), if plausible."""
+    if not lanes.valid:
+        return None
+    (m1, b1), (m2, b2) = lanes.left_fit, lanes.right_fit
+    if abs(m1 - m2) < 1e-6:
+        return None
+    y = (b2 - b1) / (m1 - m2)
+    return y if HORIZON_RANGE[0] * height <= y <= HORIZON_RANGE[1] * height else None
+
+
+def lateral_offset_m(x: float, y: float, width: int, height: int, horizon_y: float, cam_height_m: float) -> float:
+    """Flat-road lateral distance (m, + = right) of the ground point at image (x, y) from the camera axis.
+
+    X = (x - cx) * Z / f with Z = f * cam_height / (y - horizon): the focal length cancels out.
+    """
+    dy = max(y - horizon_y, MIN_GROUND_DY * height)
+    return (x - width / 2) * cam_height_m / dy
+
+
+def metric_corridor(y: float, bounds: tuple[float, float], width: int, height: int, horizon_y: float,
+                    cam_height_m: float, half_width_m: float) -> tuple[float, float]:
+    """`bounds` limited to +-half_width_m around the camera axis at row y (the axis strip if they do not meet)."""
+    half = half_width_m * max(y - horizon_y, MIN_GROUND_DY * height) / cam_height_m
+    lo, hi = max(bounds[0], width / 2 - half), min(bounds[1], width / 2 + half)
+    return (lo, hi) if hi > lo else (width / 2 - half, width / 2 + half)
+
+
 @dataclass
 class _Track:
     t: float
@@ -135,6 +165,16 @@ class MotionEstimator:
     faster than `cut_in_max_pull_away_mps` is not flagged: merging ahead of us while faster than us is not a
     collision threat, and on curves an overtaking car in the next lane can look like it drifts toward the corridor.
 
+    Corridor width (`corridor_half_width_m`): the lane corridor of a wide road, a lane line taken from the next lane
+    or the fallback trapezoid can be several metres wider than our car, which puts parked cars and the next lane's
+    traffic in the ego path. The corridor is then capped to +-corridor_half_width_m around the camera axis, using
+    flat-road geometry with the horizon at the lane vanishing point (smoothed over `horizon_tau_s`, relaxing to
+    camera.horizon_frac while no lanes are seen). `exclude_oncoming`: a vehicle closing faster than the ego speed +
+    `oncoming_margin_mps` drives toward us; it is not the lead unless it is cutting in (crossing or turning into
+    our path) or its box reaches within `oncoming_head_on_m` of the camera axis (coming at us head-on) - on curves
+    and wide roads the oncoming lane otherwise lies inside the corridor. The cap applies to vehicles only, and
+    cut-in is still measured against the lane corridor.
+
     Depth (optional, `depth` config + a `DepthFrame` per update, see perception/depth.py): the per-box value of a
     depth network replaces (`mode: replace`) or caps (`mode: min`) the pinhole distance once the map's scale and
     shift are known from the road anchors and/or full vehicle boxes; a clipped box is never farther than its
@@ -145,7 +185,9 @@ class MotionEstimator:
                  vel_min_span_s: float = 0.2, vel_max_se_mps: float = 1.5, vel_max_rel_se: float = 0.3,
                  max_track_age_s: float = 2.0, oncoming_margin_mps: float = 3.0,
                  cut_in_rate: float = 0.25, cut_in_max_distance_m: float = 30.0, cut_in_window_s: float = 0.6,
-                 cut_in_max_pull_away_mps: float = 1.0, depth: DepthConfig | None = None):
+                 cut_in_max_pull_away_mps: float = 1.0, depth: DepthConfig | None = None,
+                 corridor_half_width_m: float | None = None, exclude_oncoming: bool = False,
+                 oncoming_head_on_m: float = 0.5, horizon_tau_s: float = 1.0):
         from .depth import DepthAligner
 
         self.camera = camera
@@ -162,12 +204,26 @@ class MotionEstimator:
         self.cut_in_max_distance_m = cut_in_max_distance_m
         self.cut_in_window_s = cut_in_window_s
         self.cut_in_max_pull_away_mps = cut_in_max_pull_away_mps
+        self.corridor_half_width_m = corridor_half_width_m
+        self.exclude_oncoming = exclude_oncoming
+        self.oncoming_head_on_m = oncoming_head_on_m
+        self.horizon_tau_s = horizon_tau_s
+        self._horizon: tuple[float, float] | None = None  # (t, smoothed horizon as a fraction of the height)
         self._tracks: dict[int, _Track] = {}
         self._votes: dict[int, dict[str, float]] = {}  # track id -> class -> summed confidence
+
+    @classmethod
+    def from_config(cls, cfg: Config) -> MotionEstimator:
+        p = cfg.perception
+        return cls(cfg.camera, cut_in_rate=p.cut_in_rate, cut_in_max_distance_m=p.cut_in_max_distance_m,
+                   cut_in_max_pull_away_mps=p.cut_in_max_pull_away_mps, vel_window_s=p.velocity_window_s,
+                   depth=p.depth, corridor_half_width_m=p.corridor_half_width_m,
+                   exclude_oncoming=p.exclude_oncoming, oncoming_head_on_m=p.oncoming_head_on_m)
 
     def reset(self) -> None:
         self._tracks.clear()
         self._votes.clear()
+        self._horizon = None
         if self._aligner is not None:
             self._aligner.reset()
 
@@ -178,6 +234,19 @@ class MotionEstimator:
         votes[det.cls_name] = votes.get(det.cls_name, 0.0) + det.conf
         return max(votes, key=votes.get)
 
+    def horizon_row(self, lanes: LaneInfo, t: float, height: int) -> float:
+        """Horizon row: the lane vanishing point smoothed over time, relaxing to camera.horizon_frac without lanes."""
+        vp = lane_horizon(lanes, height)
+        target = vp / height if vp is not None else self.camera.horizon_frac
+        if self._horizon is None:
+            frac = target
+        else:
+            dt = max(t - self._horizon[0], 0.0)
+            a = 1.0 - math.exp(-dt / self.horizon_tau_s) if self.horizon_tau_s > 0 else 1.0
+            frac = a * target + (1 - a) * self._horizon[1]
+        self._horizon = (t, frac)
+        return frac * height
+
     def update(self, detections: list[Detection], t: float, lanes: LaneInfo,
                width: int, height: int, ego_speed_mps: float | None = None,
                depth: DepthFrame | None = None) -> None:
@@ -185,22 +254,36 @@ class MotionEstimator:
         pinhole = [estimate_distance(det, f_px, height, self.camera.mount_height_m, cls_name=self._track_class(det))
                    for det in detections]
         refined = self._depth_distances(detections, pinhole, depth, height, t) if depth is not None else None
+        horizon_y = self.horizon_row(lanes, t, height)
+        cam_h = self.camera.mount_height_m
         for i, det in enumerate(detections):
             det.distance_m, det.distance_source = pinhole[i], "pinhole"
             if refined is not None and refined[i] is not None:
                 det.distance_m, det.distance_source = refined[i], "depth"
             x1, _, x2, y2 = det.box
-            left, right = ego_corridor(y2, lanes, width, height)
+            lane_left, lane_right = left, right = ego_corridor(y2, lanes, width, height)
+            if self.corridor_half_width_m is not None and det.cls_name in VEHICLE_CLASSES:
+                # vehicles keep to their lane; pedestrians and cyclists can step into our path within a second
+                left, right = metric_corridor(y2, (left, right), width, height, horizon_y, cam_h,
+                                              self.corridor_half_width_m)
             overlap = max(0.0, min(x2, right) - max(x1, left))
-            det.in_ego_path = overlap >= 0.3 * max(x2 - x1, 1.0) and det.cls_name not in NOT_OBSTACLES
+            # a box wider than the corridor (a truck crossing ahead) is in the path once it covers 30 % of it
+            det.in_ego_path = (overlap >= 0.3 * max(min(x2 - x1, right - left), 1.0)
+                               and det.cls_name not in NOT_OBSTACLES)
             cx = (x1 + x2) / 2
             det.position = "front-left" if cx < left else "front-right" if cx > right else "ahead"
-            # Signed gap between the box and the corridor: > 0 outside, < 0 overlapping (in corridor widths).
-            gap = (left - x2 if cx < (left + right) / 2 else x1 - right) / max(right - left, 1.0)
+            # Signed gap between the box and the lane corridor: > 0 outside, < 0 overlapping (in corridor widths).
+            gap = ((lane_left - x2 if cx < (lane_left + lane_right) / 2 else x1 - lane_right)
+                   / max(lane_right - lane_left, 1.0))
             self._update_track(det, t, gap)
             # Closing faster than we drive means the object itself moves toward us (oncoming traffic).
             if ego_speed_mps is not None and det.closing_speed_mps is not None and det.track_id is not None:
                 det.oncoming = det.closing_speed_mps > ego_speed_mps + self.oncoming_margin_mps
+            if self.exclude_oncoming and det.oncoming and not det.cutting_in:
+                # a crossing or turning vehicle closes faster than we drive too: only its lateral position tells
+                lo, hi = (lateral_offset_m(x, y2, width, height, horizon_y, cam_h) for x in (x1, x2))
+                if min(abs(lo), abs(hi)) > self.oncoming_head_on_m and not lo <= 0 <= hi:
+                    det.in_ego_path = False
 
         stale = [tid for tid, tr in self._tracks.items() if t - tr.t > self.max_track_age_s]
         for tid in stale:

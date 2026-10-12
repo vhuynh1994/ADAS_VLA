@@ -226,6 +226,32 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
 - Decision rule unchanged: v5 becomes the default (`configs/default.yaml: vlm.model_id`) only if it wins on
   under-braking first on the fixed val split, then on joint accuracy; keep the Nexar crash test as the second table.
 
+## Ego corridor in metres + oncoming exclusion (2026-10-12, CPU replay; now the default)
+- Cause of the false AEB/FCW on the UK demo (`outputs/uk_p5_base.jsonl`, AEB 35 % of frames): lane corridor median
+  7.9 m wide (wide road / a line of the next lane), so parked cars and oncoming traffic were "in path".
+- `perception.corridor_half_width_m: 1.2` (half our width + 0.3 m): the in-path test of **vehicles** uses the lane
+  corridor capped to +-1.2 m around the camera axis, flat-road geometry with the horizon at the lane vanishing point
+  (EMA 1 s; `camera.horizon_frac` 0.5 without lanes; per-clip VP 0.37-0.64 H in the captures, std 0.03 H within a
+  clip). Pedestrians / cyclists and the cut-in gap keep the lane corridor. A box wider than the corridor (crossing
+  truck) is in path once it covers 30 % of the corridor (was 30 % of the box: missed a stopped truck in AU clip 004).
+- `perception.exclude_oncoming: true`: a vehicle closing faster than ego speed + 3 m/s is not the lead unless cutting
+  in or its box reaches within `oncoming_head_on_m` 0.5 m of the axis.
+- Rejected first versions (measured): cap on everything incl. cut-in and VRUs, and "never brake for oncoming", cut
+  normal-driving AEB 9.3 % → 3.8 % but lost real hazards (Nexar AEB 53 % → 37 %, AU brake response 88 % → 59 %):
+  turning/crossing cars close faster than we drive (flagged oncoming), cut-ins start 2-3.6 m to the side, crossing
+  pedestrians. Requiring 0.3 m intrusion into the metric corridor regained one at-impact AEB but put UK oncoming
+  traffic back in path (side faces pull box edges ~0.8 m toward the axis).
+- Replay, 136 captures, pinhole (`--variant lane_corridor:perception.corridor_half_width_m=null,perception.exclude_oncoming=false`):
+  normal AEB 9.28 → 7.49 % time, 5.08 → 4.75 /min, FCW+AEB 50.7 → 45.7 %; Nexar AEB 53.2 → 51.4 % (ctrl 25.2 →
+  18.9), warn 90.1 → 89.2 %; AU keep-AEB 1.5 %, brake response 88.2 % unchanged. The 3 changed hazards: 00457 (base
+  FCW on a car 4-11 m to the side, chance), 00865 (braking lead flagged oncoming because the replay assumes 45 km/h;
+  FCW still fires 0.2 s before the event), 00930 (base AEB only at the impact frame). UK log replay: AEB 35.4 % →
+  15.6 % of frames (13 → 8 onsets).
+- Remaining false AEB: cut-in flags of vehicles beside us (perspective makes an overtaken car's box edge drift toward
+  the corridor), oncoming buses whose side face reaches the axis, phantom closing speeds (~40 m/s) at 40-50 m. Next:
+  cut-in only if the predicted lateral position at TTC is inside the corridor (lateral speed in metres, outer box
+  edge - class width for the inner edge), plausibility cap of the closing speed with the CAN ego speed.
+
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.

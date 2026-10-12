@@ -179,10 +179,7 @@ class ADASPipeline:
             self.lane_detector = build_lane_detector(
                 cfg.perception.lane_model, cfg.perception.lane_weights, cfg.perception.device,
             ) if cfg.perception.lane_detection else None
-        self.motion = MotionEstimator(cfg.camera, cut_in_rate=cfg.perception.cut_in_rate,
-                                      cut_in_max_distance_m=cfg.perception.cut_in_max_distance_m,
-                                      cut_in_max_pull_away_mps=cfg.perception.cut_in_max_pull_away_mps,
-                                      vel_window_s=cfg.perception.velocity_window_s, depth=cfg.perception.depth)
+        self.motion = MotionEstimator.from_config(cfg)
         self.depth = None
         if cfg.perception.depth.enabled:
             from .perception.depth import DepthEstimator

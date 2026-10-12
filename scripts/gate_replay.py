@@ -198,9 +198,7 @@ def run_clip(clip: dict, cfg: Config) -> list[tuple[float, LongAction, set[str]]
     from adas_vla.perception.detector import is_ego_hood
 
     p = cfg.perception
-    motion = MotionEstimator(cfg.camera, cut_in_rate=p.cut_in_rate, cut_in_max_distance_m=p.cut_in_max_distance_m,
-                             cut_in_max_pull_away_mps=p.cut_in_max_pull_away_mps, vel_window_s=p.velocity_window_s,
-                             depth=p.depth)
+    motion = MotionEstimator.from_config(cfg)
     safety = SafetySupervisor(cfg)
     ego = EgoState(clip["ego_kmh"])
     w, h = clip["width"], clip["height"]

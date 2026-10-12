@@ -26,6 +26,9 @@ def resolve_model(model_id: str) -> str:
 class CameraConfig:
     hfov_deg: float = 60.0  # horizontal field of view of the front camera
     mount_height_m: float = 1.3
+    # image row of the horizon (fraction of the height) when no lane vanishing point is seen; it sets the metric
+    # width of the ego corridor (perception.corridor_half_width_m)
+    horizon_frac: float = 0.5
 
 
 @dataclass
@@ -90,6 +93,14 @@ class PerceptionConfig:
     cut_in_max_distance_m: float = 30.0
     cut_in_max_pull_away_mps: float = 1.0  # a vehicle moving away from us faster than this is not a cut-in threat
     velocity_window_s: float = 0.5  # closing speed = least-squares distance slope over this window
+    # In-path test for vehicles against the ego corridor capped to +-this many metres around the camera axis
+    # (flat-road geometry, horizon from the lane vanishing point or camera.horizon_frac); null = the lane (or
+    # fallback) corridor as detected. Pedestrians / cyclists and the cut-in test keep the lane corridor.
+    corridor_half_width_m: float | None = 1.2  # half our width (0.9 m) + 0.3 m
+    # Oncoming vehicles (closing faster than the ego speed + a margin) are not the lead unless cutting in or
+    # head-on: box within oncoming_head_on_m of the camera axis.
+    exclude_oncoming: bool = True
+    oncoming_head_on_m: float = 0.5
     # local: models on this PC | board: detector + lane model on the SA8650P HTP via board/vla_stream_server
     # (start it with board/board_server.sh start); tracking, lane fitting, geometry and the gate stay here
     backend: str = "local"
