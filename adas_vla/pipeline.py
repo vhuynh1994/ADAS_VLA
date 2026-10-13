@@ -191,8 +191,14 @@ class ADASPipeline:
         self._history = FrameHistory(cfg.vlm.prev_frame_s)  # earlier frame for the 2-frame VLM input
 
         self.vlm = vlm
-        in_process = cfg.vlm.mode == "process" and self.vlm is None and load_vlm and cfg.vlm.enabled
-        if self.vlm is None and load_vlm and cfg.vlm.enabled and not in_process:
+        in_process = (cfg.vlm.mode == "process" and self.vlm is None and load_vlm and cfg.vlm.enabled
+                      and cfg.vlm.backend == "local")
+        if self.vlm is None and load_vlm and cfg.vlm.enabled and cfg.vlm.backend == "board":
+            from .reasoning.board_vlm import BoardVLM
+
+            log.info("VLM on the board (%s:%d)", cfg.vlm.board_host, cfg.vlm.board_port)
+            self.vlm = BoardVLM(cfg.vlm)  # network client: a thread worker in async / process mode
+        elif self.vlm is None and load_vlm and cfg.vlm.enabled and not in_process:
             from .reasoning.vlm import VisionLanguageModel
 
             log.info("Loading VLM %s (%s)...", cfg.vlm.model_id, cfg.vlm.quantization)

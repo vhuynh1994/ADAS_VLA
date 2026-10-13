@@ -53,3 +53,12 @@ def test_decode_runs_roundtrip():
 def test_tracker_boxes_view():
     b = _Boxes(np.array([[10, 20, 30, 60, 0.9, 2], [0, 0, 4, 4, 0.3, 0]], np.float32))
     assert np.allclose(b.xywh[0], [20, 40, 20, 40]) and len(b[b.conf > 0.5]) == 1 and b.cls[1] == 0
+
+
+def test_board_vlm_prompt_split_and_pixels():
+    from adas_vla.reasoning.board_vlm import pixel_values, split_prompt
+
+    before, after = split_prompt("<|im_start|>user\n<IMG_CONTEXT>\nEgo speed: 45 km/h.<|im_end|>")
+    assert before == "<|im_start|>user\n<img>" and after == "</img>\nEgo speed: 45 km/h.<|im_end|>"
+    px = np.frombuffer(pixel_values(np.full((720, 1280, 3), 255, np.uint8)), np.float32).reshape(3, 448, 448)
+    assert np.allclose(px[:, 0, 0], (1 - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225]), atol=1e-5)

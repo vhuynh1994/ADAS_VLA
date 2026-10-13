@@ -142,6 +142,12 @@ class VLMConfig:
     # sync: deterministic, for offline video | async: background thread | process: separate process (live camera;
     # a thread holds the GIL while it waits for the GPU and stalls perception)
     mode: str = "sync"
+    # local: model_id on this PC | board: InternVL3.5-2B on the SA8650P (board/vlm_genie_server.cpp, start it with
+    # board/vlm_server.sh start); board_processor = the -HF checkpoint folder, read for its chat template only
+    backend: str = "local"
+    board_host: str = "192.168.0.73"
+    board_port: int = 50053
+    board_processor: str = "models/OpenGVLab--InternVL3_5-2B-HF"
     every_n_frames: int = 15
     max_decision_age_s: float = 2.0  # older VLM decisions are ignored in favour of the rule-based policy
 
