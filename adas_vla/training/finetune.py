@@ -11,6 +11,7 @@ import math
 import os
 import random
 import shutil
+import signal
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -45,11 +46,26 @@ class TrainArgs:
     max_steps: int | None = None  # stop after this many optimizer steps (smoke test: peak memory + ETA of the full run)
     save_every: int = 0  # write a resumable checkpoint (<output_dir>/resume/state.pt) every N optimizer steps (0 = off)
     resume: bool = False  # continue from <output_dir>/resume/state.pt if it exists (same run settings required)
+    stop_at: str | None = None  # "HH:MM" local time: save a resumable checkpoint and stop (overnight-only training)
 
 
 # Settings that must match between a checkpoint and the run resuming it.
 RESUME_KEYS = ("data", "epochs", "lr", "grad_accum", "lora_r", "seed", "max_class_share", "init_adapter",
                "brake_weight", "optimizer")
+
+
+def stop_deadline(stop_at: str | None, now: float) -> float | None:
+    """Epoch time of the first `stop_at` ("HH:MM", local time) after `now`, or None."""
+    if not stop_at:
+        return None
+    import datetime as dt
+
+    hour, minute = (int(v) for v in stop_at.split(":"))
+    start = dt.datetime.fromtimestamp(now)
+    t = start.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if t <= start:
+        t += dt.timedelta(days=1)
+    return t.timestamp()
 
 
 def label_key(rec: dict) -> tuple[str, str]:
@@ -290,6 +306,11 @@ def train(cfg: Config, args: TrainArgs) -> None:
     run = {**{k: getattr(args, k) for k in RESUME_KEYS}, "model": cfg.vlm.model_id,
            "quantize_vision": cfg.vlm.quantize_vision, "prev_frame_s": cfg.vlm.prev_frame_s}
     step, running, t0, n_oom = 0, 0.0, time.time(), 0
+    # Pause = resumable checkpoint at the next optimizer step, then return without saving the adapter: at
+    # `--stop-at` or on SIGTERM (`kill <pid>`: at most one step of work is lost instead of up to `save_every`).
+    deadline = stop_deadline(args.stop_at, time.time())
+    paused, term = False, []
+    prev_handler = signal.signal(signal.SIGTERM, lambda signum, frame: term.append(signum))
     start_epoch, start_i, resume_order = 0, 0, None
     if args.resume and resume_path.exists():
         pos = load_resume_state(resume_path, model=model, optimizer=optimizer, scheduler=scheduler, rng=rng, run=run)
@@ -342,8 +363,16 @@ def train(cfg: Config, args: TrainArgs) -> None:
                     save_resume_state(resume_path, model=model, optimizer=optimizer, scheduler=scheduler, step=step,
                                       epoch=epoch, next_i=i + 1, order=order, rng=rng, elapsed=time.time() - t0,
                                       run=run)
+                if term or (deadline is not None and time.time() >= deadline):
+                    save_resume_state(resume_path, model=model, optimizer=optimizer, scheduler=scheduler, step=step,
+                                      epoch=epoch, next_i=i + 1, order=order, rng=rng, elapsed=time.time() - t0,
+                                      run=run)
+                    paused = True
+                    break
                 if args.max_steps and step >= args.max_steps:
                     break
+        if paused:
+            break
         if args.max_steps and step >= args.max_steps:
             print(f"Stopped after {step} optimizer steps (--max-steps); the full run would take "
                   f"{(time.time() - t0) / step * total_steps / 3600:.1f} h at this pace.")
@@ -351,6 +380,12 @@ def train(cfg: Config, args: TrainArgs) -> None:
         if val_records:
             print(f"epoch {epoch + 1} val_loss {_val_loss(model, processor, val_records, cfg, device):.4f}")
 
+    signal.signal(signal.SIGTERM, prev_handler)
+    if paused:
+        why = "SIGTERM" if term else f"--stop-at {args.stop_at}"
+        print(f"Paused at step {step}/{total_steps} ({why}): checkpoint {resume_path}; rerun with --resume to "
+              f"continue ({(time.time() - t0) / max(step, 1) * (total_steps - step) / 3600:.1f} h left)", flush=True)
+        return
     model.save_pretrained(out_dir)
     meta = {"base_model": cfg.vlm.model_id, "quantization": cfg.vlm.quantization,
             "image_size": cfg.vlm.image_size, "language": cfg.vlm.language, "train": asdict(args)}

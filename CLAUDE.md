@@ -77,7 +77,7 @@ A text **LLM** (Qwen3-4B) explains interventions in Vietnamese. Architecture and
 - v4 result (2026-09-30, ds_v3 val 900 / Nexar test 424): v3 73.1% joint / under 9.1% / over 14.3%; v4 67.1% /
   6.2% / 23.7% (Nexar: v3 63.7 / 3.5 / 32.8, v4 61.1 / 2.4 / 36.6). v3 with cautious decoding at tau 0.35 on the same
   val gives 67.3% / 6.1% / 23.1% -> v4 only moved along v3's trade-off curve (brake weight 2.0), the 2-frame input
-  added no measurable information. v3 stays the default; v4 kept in `models/adas-vlm-v4` (needs prev_frame_s 0.5).
+  added no measurable information. v3 stays the default; v4 adapter in `checkpoints/lora-v4` (needs prev_frame_s 0.5).
 
 ## Changes 2026-10-10 (latency budget + per-stage timing, measured on the owner's PC)
 - Budget (step B0 of the owner's deployment notes): `budget:` in `configs/default.yaml` (`BudgetConfig`), table and
@@ -226,7 +226,7 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
 - Decision rule unchanged: v5 becomes the default (`configs/default.yaml: vlm.model_id`) only if it wins on
   under-braking first on the fixed val split, then on joint accuracy; keep the Nexar crash test as the second table.
 - Result (2026-10-13 01:15; training ended 00:31 at step 3033, 7 out-of-memory windows dropped in total, final loss
-  ~0.02; merged model `models/adas-vlm-v5`, eval with the 4-bit ViT as trained). Paired McNemar tests v3 vs v5:
+  ~0.02; adapter `checkpoints/lora-v5`, eval with the 4-bit ViT as trained). Paired McNemar tests v3 vs v5:
 
   | set | metric | v3 | v5 | only v3 / only v5 | p |
   |---|---|---|---|---|---|
@@ -246,6 +246,18 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   almost all the time. Cautious policy on v5 (`sweep_policy.py`, thresholds 0.1/0.1): Nexar under-braking 0.2 % but
   over-braking 51.7 % - unusable. Decision: keep v3. Open questions: v5 with the bf16 ViT (needs > 8 GB to train),
   and the 7B on the board via AI Hub Genie w4a16, where its latency would have to be measured.
+- 2026-10-13: merged v1, v2, v4, v5 deleted for disk space (adapters kept in `checkpoints/lora-*`: `adas-vla merge
+  --adapter checkpoints/lora-vN --out models/adas-vlm-vN`, base 3B for v1-v4, `--config configs/vlm_7b.yaml` for v5).
+- Wasted ViT backward (all rounds so far): `gradient_checkpointing_enable()` calls `enable_input_require_grads()`,
+  which also hooks the ViT patch embedding, so every step kept the ViT activations and back-propagated through the
+  frozen ViT. `finetune.freeze_vision_autograd` runs the ViT under no_grad (LoRA gradients identical:
+  `tests/test_vit_grads.py`). With it the 7B fits with the **bf16 ViT**: 20-step smoke peak 7.1 GB, 19.2 s/step.
+- v5b = v5 with the bf16 ViT (question: did the 4-bit ViT cause the Nexar under-braking?): `TAG=v5b SKIP_SMOKE=1
+  V5_EXTRA="" TRAIN_EXTRA="--optimizer paged_adamw_8bit --lora-r 8" STOP_AT=07:30
+  PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True nohup scripts/pipeline_v5_7b.sh >> outputs/v5b_7b.log 2>&1 &`,
+  ~16.3 h of training -> two nights. Owner's rule: train overnight only. `--stop-at HH:MM` / `STOP_AT` and SIGTERM
+  save a resumable checkpoint at the next optimizer step and stop; the pipeline exits without merging until the
+  training is complete, the same command continues it.
 
 ## Ego corridor in metres + oncoming exclusion (2026-10-12, CPU replay; now the default)
 - Cause of the false AEB/FCW on the UK demo (`outputs/uk_p5_base.jsonl`, AEB 35 % of frames): lane corridor median

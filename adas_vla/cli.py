@@ -233,7 +233,7 @@ def cmd_train(args) -> None:
                          max_class_share=args.max_class_share, init_adapter=args.init_adapter,
                          workers=args.workers, brake_weight=args.brake_weight, optimizer=args.optimizer,
                          max_steps=args.max_steps, save_every=args.save_every, resume=args.resume,
-                         log_every=args.log_every))
+                         log_every=args.log_every, stop_at=args.stop_at))
 
 
 def cmd_eval(args) -> None:
@@ -455,6 +455,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", action="store_true",
                    help="continue from <output>/resume if present (survives a crash, a reboot or a suspend)")
     p.add_argument("--log-every", type=int, default=5, help="print the loss every N optimizer steps")
+    p.add_argument("--stop-at", metavar="HH:MM", help="save a resumable checkpoint and stop at this local time "
+                   "(train overnight only; SIGTERM does the same at any time)")
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("eval", help="evaluate action accuracy / JSON validity / latency on a dataset")

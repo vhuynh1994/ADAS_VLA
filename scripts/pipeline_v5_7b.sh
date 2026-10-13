@@ -13,6 +13,8 @@
 #   SKIP_SMOKE=1 skip the 20-step memory / speed smoke test
 #   SAVE_EVERY   resumable checkpoint every N optimizer steps (default 100 ~ 35 min on the 4060); a rerun of this
 #                script continues the training from it (and skips the smoke test and a finished training)
+#   STOP_AT      HH:MM: training saves a checkpoint and stops at this time (overnight-only runs); the next run of the
+#                same command continues it. `pkill -TERM -f "adas-vla train"` pauses it the same way at any time.
 #   TAG          model name (default v5), e.g. TAG=v5b V5_EXTRA="" for a second run next to v5
 #   NO_INHIBIT=1 do not block suspend: by default the whole run holds a systemd sleep + lid-switch inhibitor, so
 #                closing the laptop lid no longer suspends it (a suspend hung the CUDA context on 2026-10-11).
@@ -57,9 +59,10 @@ if trained; then
 else
   wait_gpu 7500
   echo "== [$(date +%T)] fine-tune $TAG (base Qwen2.5-VL-7B-Instruct, ds_v3; resumable every ${SAVE_EVERY:-100} steps)"
-  $A train $C --data $D --output $OUT $TRAIN --save-every "${SAVE_EVERY:-100}" --resume $EXTRA 2>&1 \
-    | grep --line-buffered -vE "$F"
+  $A train $C --data $D --output $OUT $TRAIN --save-every "${SAVE_EVERY:-100}" --resume ${STOP_AT:+--stop-at $STOP_AT} \
+    $EXTRA 2>&1 | grep --line-buffered -vE "$F"
   [[ ${PIPESTATUS[0]} -eq 0 ]] || exit 1
+  trained || { echo "== [$(date +%T)] training paused (STOP_AT / SIGTERM): rerun this script to continue"; exit 0; }
 fi
 echo "== [$(date +%T)] merge $TAG (shard by shard)"
 $A merge $C --adapter $OUT --out models/adas-vlm-$TAG 2>&1 | grep --line-buffered -vE "$F"

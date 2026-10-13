@@ -100,3 +100,15 @@ def test_micro_step_survives_out_of_memory():
     ok = _micro_step(model, {"x": torch.ones(3), "length": torch.tensor(100)}, "cpu", weight=2.0, grad_accum=4)
     assert ok == pytest.approx(1.5) and torch.equal(model.w.grad, torch.full((3,), 0.5))
     assert _micro_step(model, {"x": torch.ones(3), "length": torch.tensor(314)}, "cpu", 1.0, 4) is None
+
+
+def test_stop_deadline_is_the_next_occurrence():
+    import datetime as dt
+
+    from adas_vla.training.finetune import stop_deadline
+
+    evening = dt.datetime(2026, 10, 13, 22, 0).timestamp()
+    assert stop_deadline("07:30", evening) == dt.datetime(2026, 10, 14, 7, 30).timestamp()
+    early = dt.datetime(2026, 10, 14, 6, 0).timestamp()
+    assert stop_deadline("07:30", early) == dt.datetime(2026, 10, 14, 7, 30).timestamp()
+    assert stop_deadline(None, evening) is None
