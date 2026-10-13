@@ -103,6 +103,14 @@ Crash trên QNX ghi core vào `/dev/shmem` (RAM): luôn `ulimit -c 0`. Demo từ
 Token đầu tiên (action) sau ~0.74 s kể từ khi có ảnh: trong ngân sách 1 s. Model gốc chưa fine-tune: trên clip va chạm AU
 nó nhận ra xe máy ngã nhưng vẫn khuyên KEEP khi xe bạc cắt làn ở 24.8 s, cần fine-tune như v3.
 
+**VLA trên board với model mặc định (13/10/2026, `board/vla_genie_demo.py`):** perception + safety gate trên PC,
+InternVL3.5-2B trên board nhận ảnh + đúng prompt quyết định của project và trả JSON action; LLM bên trong InternVL
+(Qwen3-1.7B, `genie_config.json` chỉ chữ, dùng chung `part*.bin`) viết lời giải thích tiếng Việt từ sự kiện sau gate.
+Giải mã greedy (`--setup` ghi `greedy-*.json`). Clip va chạm AU, 6 frame: action có sau ViT 0.59 s + token đầu 0.31 s
+(prompt ~600 token), JSON đầy đủ 1.8–2.0 s; lời giải thích 2.9–4.7 s (30 token/s). Model gốc **luôn trả KEEP / risk low**
+(kể cả lúc xe cắt làn), đôi khi chép nguyên dòng menu (`"KEEP = hold current speed"`); gate vẫn ra FCW/AEB đúng lúc.
+Lời giải thích đọc hiểu được nhưng lẫn chữ Hán và có chi tiết bịa: cần fine-tune (scripts/pipeline_internvl.sh).
+
 **Qwen2.5-VL-7B (bundle AI Hub) không chạy được trên board:** LLM 5 phần × ~826 MB trên DSP, một PD (không gian địa chỉ 32-bit)
 chỉ chứa được 3 phần (~2.5 GB); backend mở PD thứ 2 nhưng nạp lỗi 1004. Model VLM trên board này phải ≤ ~2.5 GB trên DSP.
 
