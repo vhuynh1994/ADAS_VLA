@@ -12,7 +12,8 @@ from PIL import Image
 from ..config import VLMConfig, resolve_model
 from ..types import DrivingDecision, context_has_hazard_cue
 from .parser import parse_decision
-from .prompts import DECISION_PREFIX, chat_messages, decision_messages
+from .prompts import (DECISION_PREFIX, THINKING_PREFIX, chat_messages, decision_messages, split_thinking,
+                      thinking_messages)
 
 
 def to_pil(image, max_side: int, size: list[int] | None = None) -> Image.Image:
@@ -236,6 +237,15 @@ class VisionLanguageModel:
         else:
             visual = now
         messages = decision_messages(visual, context_text, ego_speed_kmh, cruise_speed_kmh, self.cfg.language)
+        if self.cfg.thinking:  # demo: reasoning first, then the JSON (no forced prefix / first-token policy)
+            t0 = time.perf_counter()
+            thinking, raw = split_thinking(self.generate(thinking_messages(messages), prefix=THINKING_PREFIX,
+                                                         max_new_tokens=self.cfg.thinking_max_tokens))
+            latency = time.perf_counter() - t0
+            decision = parse_decision(raw, ego_speed_kmh, max_speed_kmh)
+            if decision is not None:
+                decision.latency_s, decision.thinking = latency, thinking
+            return decision, raw, latency
         policy = ActionPolicy(self.processor.tokenizer, 0, self.cfg, cue=context_has_hazard_cue(context_text))
         t0 = time.perf_counter()
         if self.cfg.generate_reason:

@@ -217,6 +217,7 @@ class DrivingDecision:
     timestamp_s: float = 0.0
     latency_s: float = 0.0
     action_probs: dict[str, float] | None = None  # VLM probability of each longitudinal action
+    thinking: str = ""  # step-by-step reasoning before the answer (InternVL thinking mode on the board, demo)
 
     @property
     def label(self) -> str:

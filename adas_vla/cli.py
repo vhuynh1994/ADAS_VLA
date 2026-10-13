@@ -248,6 +248,8 @@ def cmd_eval(args) -> None:
 
 def cmd_demo(args) -> None:
     """VLM + VLA + LLM together: drive the video, and let the LLM explain each intervention as it happens."""
+    from concurrent.futures import ThreadPoolExecutor
+
     import cv2
 
     from .events import EventDetector, frame_record
@@ -267,23 +269,49 @@ def cmd_demo(args) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     writer, copilot, copilot_until = None, None, -1.0
     events = []
+    window = "ADAS-VLA demo"
+    if args.show:  # live window: the LLM explains in a background thread so the video keeps going
+        cv2.namedWindow(window, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    pool = ThreadPoolExecutor(max_workers=1) if args.show else None
+    pending = None  # (event, future) of the explanation being written
+
+    def finish(event, text, latency, t):
+        nonlocal copilot, copilot_until
+        copilot, copilot_until = text, t + args.show_s
+        events.append({**event, "explanation": text, "llm_latency_s": round(latency, 2)})
+        log.write(json.dumps(events[-1], ensure_ascii=False) + "\n")
+        print(f"[t={event['t']:5.1f}s] {', '.join(event['kinds'])} -> {event['decision']['longitudinal']}\n"
+              f"   LLM ({latency:.1f}s): {text}", flush=True)
+
     with open(out.with_suffix(".events.jsonl"), "w") as log:
         for idx, t, frame in iter_frames(args.source, args.max_frames):
             res = pipe.process(frame, idx, t, ego)
             new = detector.update(t, [a.kind for a in res.alerts], res.decision.source)
+            if pending is not None and pending[1].done():
+                finish(pending[0], *pending[1].result(), t)
+                pending = None
             if new:
                 event = {**frame_record(res), "kinds": new}
-                text, latency = llm.explain(event)
-                copilot, copilot_until = text, t + args.show_s
-                events.append({**event, "explanation": text, "llm_latency_s": round(latency, 2)})
-                log.write(json.dumps(events[-1], ensure_ascii=False) + "\n")
-                print(f"[t={t:5.1f}s] {', '.join(new)} -> {res.decision.label}\n   LLM ({latency:.1f}s): {text}",
-                      flush=True)
+                if pool is None:
+                    finish(event, *llm.explain(event), t)
+                elif pending is None:  # one explanation at a time; events during it are skipped
+                    pending = (event, pool.submit(llm.explain, event))
             vis = hud.draw(frame, res, copilot if t <= copilot_until else None)
             if writer is None:
                 h, w = vis.shape[:2]
                 writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"), source_fps(args.source), (w, h))
             writer.write(vis)
+            if args.show:
+                cv2.imshow(window, hud.draw(frame, res, copilot if t <= copilot_until else None,
+                                            max_width=args.display_width))
+                if cv2.waitKey(1) & 0xFF in (ord("q"), 27) or cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+        if pending is not None:
+            finish(pending[0], *pending[1].result(), t)
+    if pool is not None:
+        pool.shutdown()
+    if args.show:
+        cv2.destroyAllWindows()
     pipe.close()
     if writer:
         writer.release()
@@ -476,6 +504,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-frames", type=int)
     p.add_argument("--min-gap", type=float, default=3.0, help="seconds before the same alert is explained again")
     p.add_argument("--show-s", type=float, default=4.0, help="seconds an explanation stays on screen")
+    p.add_argument("--show", action="store_true", help="live window (q, Esc or closing it quits); the LLM then "
+                   "explains in the background instead of pausing the video")
+    p.add_argument("--display-width", type=int, default=1280, help="max width of the window image")
     p.set_defaults(func=cmd_demo)
 
     p = sub.add_parser("explain", help="LLM explains ADAS interventions found in a run log")

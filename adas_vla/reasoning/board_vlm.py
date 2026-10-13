@@ -20,7 +20,7 @@ import numpy as np
 from ..config import VLMConfig, resolve_model
 from ..types import DrivingDecision
 from .parser import parse_decision
-from .prompts import DECISION_PREFIX, decision_messages
+from .prompts import DECISION_PREFIX, THINKING_PREFIX, decision_messages, split_thinking, thinking_messages
 
 MEAN = np.array([0.485, 0.456, 0.406], np.float32)
 STD = np.array([0.229, 0.224, 0.225], np.float32)
@@ -93,9 +93,15 @@ class BoardVLM:
 
         msgs = decision_messages(Image.new("RGB", (448, 448)), context_text, ego_speed_kmh, cruise_speed_kmh,
                                  self.cfg.language)
+        thinking = ""
+        if self.cfg.thinking:
+            msgs = thinking_messages(msgs)
         before, after = split_prompt(self.processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True))
         t0 = time.perf_counter()
-        raw = DECISION_PREFIX + self.generate(image, before, after + DECISION_PREFIX, self.cfg.max_new_tokens)
+        if self.cfg.thinking:  # the server config caps the length (max-num-tokens)
+            thinking, raw = split_thinking(THINKING_PREFIX + self.generate(image, before, after + THINKING_PREFIX, 0))
+        else:
+            raw = DECISION_PREFIX + self.generate(image, before, after + DECISION_PREFIX, self.cfg.max_new_tokens)
         latency = time.perf_counter() - t0
         raw = MENU_COPY.sub(r'"\1"', raw)
         if "}" not in raw and "," in raw:  # cut inside a field (max_new_tokens): keep the complete ones
@@ -103,6 +109,7 @@ class BoardVLM:
         decision = parse_decision(raw, ego_speed_kmh, max_speed_kmh)
         if decision is not None:
             decision.latency_s = latency
+            decision.thinking = thinking
         return decision, raw, latency
 
     def chat(self, *args, **kwargs) -> str:

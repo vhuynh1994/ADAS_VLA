@@ -109,3 +109,41 @@ def chat_messages(image, context_text: str, ego_speed_kmh: float, history: list[
         if a is not None:
             messages.append({"role": "assistant", "content": [{"type": "text", "text": a}]})
     return messages
+
+
+# Thinking mode (demo): OpenGVLab's InternVL3.5 thinking system prompt ("R1", model card); other VLMs follow it as a
+# chain-of-thought instruction. The ADAS decision instructions move from the system turn to the user turn.
+THINKING_SYSTEM_PROMPT = """
+You are an AI assistant that rigorously follows this response protocol:
+
+1. First, conduct a detailed analysis of the question. Consider different angles, potential solutions, and reason through the problem step-by-step. Enclose this entire thinking process within <think> and </think> tags.
+
+2. After the thinking section, provide a clear, concise, and direct answer to the user's question. Separate the answer from the think section with a newline.
+
+Ensure that the thinking process is thorough but remains focused on the query. The final answer should be standalone and not reference the thinking section.
+""".strip()  # noqa: E501
+
+
+THINKING_INSTRUCTION = ("Before the JSON, think step by step inside <think> and </think>: what you see, which road users "
+                        "could be hit and how soon, and which action is safest. Then output the JSON.")
+THINKING_PREFIX = "<think>\n"  # pre-filled start of the reply: models without a native thinking mode think too
+
+
+def thinking_messages(messages: list[dict]) -> list[dict]:
+    """decision_messages() rewritten for thinking mode: the thinking protocol as system prompt."""
+    system = messages[0]["content"][0]["text"]
+    visual, text = messages[1]["content"]
+    return [{"role": "system", "content": [{"type": "text", "text": THINKING_SYSTEM_PROMPT}]},
+            {"role": "user", "content": [visual, {"type": "text", "text": system + "\n\n" + text["text"]
+                                                  + "\n\n" + THINKING_INSTRUCTION}]}]
+
+
+def split_thinking(text: str) -> tuple[str, str]:
+    """(thinking, answer) of a thinking-mode reply; an unfinished <think> section leaves no answer."""
+    start = text.find("<think>")
+    if start == -1:
+        return "", text
+    end = text.find("</think>", start)
+    if end == -1:
+        return text[start + 7:].strip(), ""
+    return text[start + 7:end].strip(), text[end + 8:]

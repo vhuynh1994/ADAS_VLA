@@ -149,6 +149,11 @@ class VLMConfig:
     board_port: int = 50053
     board_processor: str = "models/OpenGVLab--InternVL3_5-2B-HF"
     every_n_frames: int = 15
+    # demo: step-by-step reasoning in a <think> section before the decision JSON, shown on the HUD (InternVL3.5's own
+    # thinking mode, a chain-of-thought prompt for Qwen2.5-VL); 20-40 s per decision on the PC GPU (7B), so not for
+    # driving. On the board: start the server with GEN=think-text-generator-nsp1.json.
+    thinking: bool = False
+    thinking_max_tokens: int = 600
     max_decision_age_s: float = 2.0  # older VLM decisions are ignored in favour of the rule-based policy
 
 

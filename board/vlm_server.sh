@@ -3,6 +3,7 @@
 #   QNN_SDK_ROOT=<QAIRT 2.46> bash board/vlm_server.sh build    # cross-compile with the QNX SDP
 #   bash board/vlm_server.sh deploy   # copy the server, write the board configs (vision encoder NSP0, LLM NSP1, greedy)
 #   bash board/vlm_server.sh start | stop | log
+#   GEN=think-text-generator-nsp1.json bash board/vlm_server.sh start   # thinking-mode demo (--set vlm.thinking=true)
 # Needs the InternVL bundle in $DIR and the libQnnHtp.so shim (genie_htp_shim.sh); see board/README.md.
 # The perception server (board_server.sh) shares NSP0 with the vision encoder; the LLM has NSP1 to itself.
 set -euo pipefail
@@ -38,9 +39,15 @@ cat = lambda n: json.loads(subprocess.run(ssh + [f"/usr/bin/toybox cat {d}/{n}"]
 put = lambda n, c: subprocess.run(ssh + [f"/usr/bin/toybox cat > {d}/{n}"], input=json.dumps(c, indent=2), text=True, check=True)
 ext1 = cat("htp_backend_ext_config.json"); ext1["devices"][0]["device_id"] = 1
 enc = cat("img-enc-htp.json"); enc["image-encoder"]["engine"]["model"].pop("vision-param", None)
-gen = cat("text-generator.json"); gen["text-generator"]["sampler"].update({"top-k": 1, "temp": 0.0001})
-gen["text-generator"]["engine"]["backend"]["extensions"] = "htp_ext_nsp1.json"
-for name, cfg in (("htp_ext_nsp1.json", ext1), ("img-enc-nsp0.json", enc), ("greedy-text-generator-nsp1.json", gen)):
+base = cat("text-generator.json")
+base["text-generator"]["engine"]["backend"]["extensions"] = "htp_ext_nsp1.json"
+gen = json.loads(json.dumps(base)); gen["text-generator"]["sampler"].update({"top-k": 1, "temp": 0.0001})
+gen["text-generator"]["max-num-tokens"] = 64  # the decision JSON with its reason is ~50 tokens
+# thinking mode (demo): OpenGVLab recommends sampling at temperature 0.6; at most 700 tokens (~25 s on the board)
+think = json.loads(json.dumps(base)); think["text-generator"]["sampler"].update({"top-k": 40, "top-p": 0.95, "temp": 0.6})
+think["text-generator"]["max-num-tokens"] = 700
+for name, cfg in (("htp_ext_nsp1.json", ext1), ("img-enc-nsp0.json", enc), ("greedy-text-generator-nsp1.json", gen),
+                  ("think-text-generator-nsp1.json", think)):
     put(name, cfg)
 print("configs written in", d)
 EOF
@@ -52,7 +59,8 @@ EOF
       CDSP_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp0' \
       CDSP1_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp1' \
       ADSP_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp0' && \
-      /usr/bin/toybox nohup bin/vlm_genie_server --port $PORT --dir $DIR < /dev/null > $ROOT/vlm_server.log 2>&1 &" \
+      /usr/bin/toybox nohup bin/vlm_genie_server --port $PORT --dir $DIR --gen ${GEN:-greedy-text-generator-nsp1.json} \
+      < /dev/null > $ROOT/vlm_server.log 2>&1 &" \
       < /dev/null > /dev/null 2>&1
     for _ in $(seq 1 60); do
       if $SSH "/usr/bin/toybox grep -q -E 'listening|failed|cannot' $ROOT/vlm_server.log" 2>/dev/null; then break; fi

@@ -99,8 +99,11 @@ class HUD:
             lines.append(f"VLM ({vlm.latency_s:.1f}s, {age:.1f}s ago): {vlm.label}, {vlm.target_speed_kmh:.0f} km/h")
             if vlm.reason:
                 lines.append("reason: " + vlm.reason)
+            if vlm.thinking:  # thinking-mode demo: the last part of the reasoning (the conclusion)
+                tail = " ".join(vlm.thinking.split())[-420:]
+                lines.append("thinking: ..." + tail[tail.find(" ") + 1:] if len(vlm.thinking) > 420 else "thinking: " + tail)
         if lines:
-            wrapped = [seg for line in lines for seg in textwrap.wrap(line, width=max(40, w // 9))][:6]
+            wrapped = [seg for line in lines for seg in textwrap.wrap(line, width=max(40, w // 9))][:10]
             box_h = 10 + 22 * len(wrapped)
             overlay = img.copy()
             cv2.rectangle(overlay, (0, h - box_h), (w, h), (20, 20, 20), -1)
