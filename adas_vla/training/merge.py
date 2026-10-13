@@ -5,7 +5,9 @@ RAM for the 7B, more than a laptop has. The merged weight of a LoRA'd Linear is 
 needs the two small factors and the one shard holding W, so this module streams the base safetensors shards one at
 a time, adds the deltas and writes them back under the same file names and index. Everything else in the base
 folder (config, tokenizer, processor, chat template) is copied. Checkpoint key renames that transformers applies at
-load time (Qwen2.5-VL: file `model.layers.*` <-> module `model.language_model.layers.*`) are undone when matching.
+load time (Qwen2.5-VL: file `model.layers.*` <-> module `model.language_model.layers.*`) are undone when matching,
+and an InternVL adapter trained on the transformers-native checkpoint also merges into the original one
+(`language_model.model.layers.*`) for Qualcomm AI Hub (`--set vlm.model_id=models/OpenGVLab--InternVL3_5-2B`).
 """
 
 from __future__ import annotations
@@ -21,7 +23,10 @@ SINGLE_FILE = "model.safetensors"
 ADAPTER_FILE = "adapter_model.safetensors"
 LORA_KEY = re.compile(r"^(?:base_model\.model\.)?(?P<module>.+?)\.lora_(?P<ab>[AB])(?:\.[\w-]+)?\.weight$")
 # Module path as peft saw it at training time -> how the same tensor may be named in the checkpoint files.
-RENAMES = [("model.language_model.", "model."), ("model.visual.", "visual."), ("language_model.model.", "model.")]
+RENAMES = [("model.language_model.", "model."), ("model.visual.", "visual."), ("language_model.model.", "model."),
+           # InternVL: trained on the transformers-native checkpoint (InternVL3_5-2B-HF), merged into the original
+           # remote-code checkpoint (InternVL3_5-2B: `language_model.model.layers.*`) that Qualcomm AI Hub quantizes
+           ("model.language_model.", "language_model.model.")]
 
 
 def base_tensor_candidates(module: str) -> list[str]:

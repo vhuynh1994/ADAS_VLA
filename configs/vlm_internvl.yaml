@@ -1,0 +1,14 @@
+# InternVL3.5-2B (Apache-2.0) as the base VLM: the model that runs on the SA8650P HTP through Genie (board/README.md,
+# "VLM trên board"); Qwen2.5-VL-7B does not fit one DSP protection domain there and Qwen2.5-VL-3B is not on AI Hub.
+# Trained and evaluated with the transformers-native checkpoint (InternVLForConditionalGeneration):
+#   python scripts/fetch_hf.py OpenGVLab/InternVL3_5-2B-HF
+#   adas-vla train --config configs/vlm_internvl.yaml ...    (scripts/pipeline_internvl.sh)
+# The board bundle takes one 448x448 tile (256 image tokens), so the image is resized to exactly 448x448: a square
+# image is a single tile for InternVL's processor (no crop into patches, no thumbnail).
+vlm:
+  model_id: OpenGVLab/InternVL3_5-2B-HF   # models/OpenGVLab--InternVL3_5-2B-HF
+  quantization: 4bit          # QLoRA: LLM (Qwen3-1.7B) in nf4
+  quantize_vision: false      # InternViT-300M + projector stay bf16
+  image_size: [448, 448]
+  prev_frame_s: 0.0           # single frame (the board pipeline encodes one image)
+  max_new_tokens: 64

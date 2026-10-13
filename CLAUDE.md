@@ -299,7 +299,22 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
 - Qwen2.5-VL-7B does not fit: its LLM needs ~4.1 GB on the DSP, one 32-bit PD held 3 of 5 parts (~2.5 GB) and the second
   PD fails. VLMs for this board must stay under ~2.5 GB on the DSP.
 - Quantizing a fine-tuned model with the AI Hub recipe needs a big GPU (SeqMSE/AdaScale refuse CPU; ~40 GB VRAM for 3B):
-  LLM/VLM precisions are only w4a16 / w4. Next: fine-tune InternVL3.5-2B on ds_v3, quantize (laptop test pending).
+  LLM/VLM precisions are only w4a16 / w4. On the laptop even the ONNX export of InternVL3.5-2B (CPU, fp32) needs
+  > 18 GB of RAM: the OOM killer took it and VS Code twice (2026-10-13). Quantize on a cloud / server GPU machine.
+
+## Round 6 (2026-10-13): InternVL3.5-2B fine-tune - the board model (v5b cancelled)
+- Owner's decision: v5b (7B with a bf16 ViT) cancelled, the 7B cannot run on the board; train InternVL3.5-2B instead.
+- Trained and evaluated on the transformers-native checkpoint `models/OpenGVLab--InternVL3_5-2B-HF`
+  (`configs/vlm_internvl.yaml`: QLoRA nf4 LLM, bf16 InternViT, image resized to 448x448 = one tile = 256 image
+  tokens, exactly the board bundle's input; single frame). `scripts/pipeline_internvl.sh` (TAG=ivl1): smoke ->
+  train 3 epochs with the v3 recipe (resumable, STOP_AT) -> merge -> eval val + Nexar -> sweep -> demo -> reports vs v3.
+- Code: LoRA never touches the vision tower / projector (`finetune.VISION_PARTS`; frozen ViT runs without autograd,
+  `tests/test_vit_grads.py` covers Qwen2.5-VL and InternVL). `tests/test_internvl.py` (needs the -HF weights): 256
+  image tokens, prompt masking, distinct first tokens of the actions, LoRA modules found in the checkpoint.
+- For the board: merge the same adapter into the original remote-code checkpoint `models/OpenGVLab--InternVL3_5-2B`
+  (`adas-vla merge --config configs/vlm_internvl.yaml --set vlm.model_id=models/OpenGVLab--InternVL3_5-2B ...`; the
+  LLM tensors only differ by name, `merge.RENAMES`), quantize it with the AI Hub recipe (`--checkpoint`, `--skip-veg`:
+  the vision encoder is unchanged) on a big-GPU machine, compile for SA8775P, run with board/vlm_genie_demo.py.
 
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.

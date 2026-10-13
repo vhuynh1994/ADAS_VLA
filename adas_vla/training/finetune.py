@@ -23,7 +23,11 @@ from ..types import LongAction
 from .data import load_records, sample_visual, target_json
 
 # Attention + MLP projections of the language model only (anything under `visual` is excluded).
-LORA_TARGET_REGEX = r"^(?!.*visual).*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"
+# LoRA on the language model only: not on the vision tower (Qwen2.5-VL `visual`, InternVL `vision_tower`, whose
+# attention also has q/k/v_proj) nor on InternVL's vision-to-language projector.
+VISION_PARTS = ("visual", "vision_tower", "multi_modal_projector")
+LORA_TARGET_REGEX = (r"^(?!.*(?:" + "|".join(VISION_PARTS) + r")).*\."
+                     r"(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$")
 
 
 @dataclass
@@ -153,7 +157,9 @@ def freeze_vision_autograd(model) -> bool:
     import torch
 
     base = model.get_base_model() if hasattr(model, "get_base_model") else model
-    visual = getattr(getattr(base, "model", None), "visual", None) or getattr(base, "visual", None)
+    inner = getattr(base, "model", None)
+    visual = next((v for v in (getattr(inner, "visual", None), getattr(base, "visual", None),
+                               getattr(inner, "vision_tower", None)) if v is not None), None)  # Qwen2.5-VL / InternVL
     if visual is None or any(p.requires_grad for p in visual.parameters()):
         return False
     visual.forward = torch.no_grad()(visual.forward)

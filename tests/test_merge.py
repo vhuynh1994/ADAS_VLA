@@ -107,7 +107,8 @@ def test_merge_refuses_unknown_modules_and_shapes(tmp_path):
 
 def test_candidates_and_scale_helpers():
     assert base_tensor_candidates("model.language_model.layers.3.mlp.down_proj") == [
-        "model.language_model.layers.3.mlp.down_proj.weight", "model.layers.3.mlp.down_proj.weight"]
+        "model.language_model.layers.3.mlp.down_proj.weight", "model.layers.3.mlp.down_proj.weight",
+        "language_model.model.layers.3.mlp.down_proj.weight"]  # original InternVL checkpoint (AI Hub)
     assert base_tensor_candidates("model.layers.3.mlp.down_proj") == ["model.layers.3.mlp.down_proj.weight"]
     assert lora_scale({"lora_alpha": 32}, "x", 16) == 2.0
     assert lora_scale({"lora_alpha": 32, "alpha_pattern": {"down_proj": 64}}, "model.layers.0.mlp.down_proj", 16) == 4.0
