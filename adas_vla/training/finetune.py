@@ -127,6 +127,23 @@ def _to_device(batch: dict, device) -> dict:
 MAX_OOM_SKIPS = 20  # more than this many out-of-memory windows in one run is a setup problem, not a long sample
 
 
+def freeze_vision_autograd(model) -> bool:
+    """Run the vision tower without autograd when none of its weights is trained (LoRA targets the language model).
+
+    gradient_checkpointing_enable() (and peft, on a model that is not quantized) call enable_input_require_grads(),
+    which hooks the input embeddings of every sub-model - the ViT's patch embedding too: autograd then keeps the ViT
+    activations and back-propagates through the whole ViT on every step for nothing. The LoRA gradients are the same.
+    """
+    import torch
+
+    base = model.get_base_model() if hasattr(model, "get_base_model") else model
+    visual = getattr(getattr(base, "model", None), "visual", None) or getattr(base, "visual", None)
+    if visual is None or any(p.requires_grad for p in visual.parameters()):
+        return False
+    visual.forward = torch.no_grad()(visual.forward)
+    return True
+
+
 def _micro_step(model, example: dict, device, weight: float, grad_accum: int) -> float | None:
     """Forward + backward of one sample; returns its (scaled) loss, or None when the GPU ran out of memory.
 
@@ -245,7 +262,6 @@ def train(cfg: Config, args: TrainArgs) -> None:
     for p in model.parameters():
         p.requires_grad_(False)
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    model.enable_input_require_grads()
     model.config.use_cache = False
 
     if args.init_adapter:
@@ -258,6 +274,8 @@ def train(cfg: Config, args: TrainArgs) -> None:
             r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.05,
             target_modules=LORA_TARGET_REGEX, task_type="CAUSAL_LM",
         ))
+    if freeze_vision_autograd(model):
+        print("Vision tower frozen: runs without autograd")
     model.print_trainable_parameters()
 
     params = [p for p in model.parameters() if p.requires_grad]
