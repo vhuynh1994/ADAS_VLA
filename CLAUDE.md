@@ -285,6 +285,22 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   cut-in only if the predicted lateral position at TTC is inside the corridor (lateral speed in metres, outer box
   edge - class width for the inner edge), plausibility cap of the closing speed with the CAN ego speed.
 
+## VLM on the SA8650P board: InternVL3.5-2B via Genie (2026-10-13)
+- Qualcomm AI Hub (`~/workspaces/aihub/.venv`, token in `~/.qai_hub/client.ini`, never in the repo) ships prebuilt Genie
+  W4A16 bundles for SA8775P (= HTP v73 / soc 52, loads on the SA8650P with QAIRT 2.46). Qwen2.5-VL-3B is not on AI
+  Hub (no release 0.44-0.64); Qwen2.5-VL-7B, Qwen3-VL-4B/8B, InternVL3.5-2B, Gemma-4-E4B are.
+- Genie on the board's QNX 8.0 needs: `LD_PRELOAD=/mnt/lib64/libfastrpc_pmem.so` (rpcmem symbols), `board/genie_htp_shim.c`
+  (drops HTP context option IO_MEM_ESTIMATION, which the QNX backend rejects), no `vision-param` for the InternVL ViT,
+  ViT on NSP1 + LLM on NSP0 (a second engine on the same NSP lands on a second PD, which fails with err 1004), and
+  `ulimit -c 0` (QNX writes crash cores to /dev/shmem = RAM). Details and numbers: `board/README.md`.
+- InternVL3.5-2B on the board: first token 0.15 s after a 0.59 s ViT (~0.74 s from image to action token), 29.5 tok/s,
+  model load 9.2 s once. `board/vlm_genie_demo.py` (dashcam frames -> answers + video). The base model under-brakes
+  (KEEP at the cut-in of the AU crash clip): it must be fine-tuned like v3 before it is useful.
+- Qwen2.5-VL-7B does not fit: its LLM needs ~4.1 GB on the DSP, one 32-bit PD held 3 of 5 parts (~2.5 GB) and the second
+  PD fails. VLMs for this board must stay under ~2.5 GB on the DSP.
+- Quantizing a fine-tuned model with the AI Hub recipe needs a big GPU (SeqMSE/AdaScale refuse CPU; ~40 GB VRAM for 3B):
+  LLM/VLM precisions are only w4a16 / w4. Next: fine-tune InternVL3.5-2B on ds_v3, quantize (laptop test pending).
+
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.

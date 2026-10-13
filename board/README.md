@@ -75,6 +75,37 @@ Output trên board lệch nhẹ so với emulator (score lệch ≤ 0.016, do ph
 Box là uint16 với bước 0.01 px (W8A8: 2.58 px), nên khoảng cách theo chiều cao box ít bị nhiễu lượng tử hơn. Cả pipeline
 trên board: 33.5 ms p50 (W8A8: 31.0 ms), 21.7 FPS kể cả HUD.
 
+## VLM trên board: InternVL3.5-2B (13/10/2026)
+
+Bundle Genie W4A16 của Qualcomm AI Hub cho SA8775P (cùng HTP v73 / soc 52), không cần biên dịch lại:
+`qai-hub-models fetch intern3_5_vl_2b -r genie -p w4a16 -c qualcomm-sa8775p` (2.4 GB), giải nén vào
+`/data/adas_vla_genie/internvl3_5_2b`; `genie-app` lấy từ `bin/aarch64-qnx800` của SDK QAIRT 2.46 vào `/data/adas_vla_genie/bin`.
+Bốn chỗ phải sửa để Genie chạy trên QNX 8.0 của board:
+
+| Lỗi | Nguyên nhân | Cách sửa |
+|---|---|---|
+| `Unable to access symbols in libcdsprpc` | QNX để `rpcmem_alloc/free/to_fd` trong `libfastrpc_pmem.so` | `LD_PRELOAD=/mnt/lib64/libfastrpc_pmem.so` |
+| `HTP Config option: 6 not supported` (err 1000) | Genie luôn bật `IO_MEM_ESTIMATION` (dành cho nhiều PD) | shim `genie_htp_shim.c` (cài bằng `genie_htp_shim.sh`) bỏ đúng option đó |
+| ViT `parameter height 32 and width 32 does not match` | Genie 1.18 kiểm tra kiểu input đã cắt patch (Qwen), ViT InternVL nhận NCHW | bỏ `vision-param` khỏi config ViT |
+| LLM part 4 err 1004 khi ViT cùng NSP | engine thứ hai bị đặt sang PD mới, PD thứ 2 không chạy được trên board | ViT trên NSP1 (`device_id: 1`, `CDSP1_LIBRARY_PATH`), LLM trên NSP0 |
+
+Crash trên QNX ghi core vào `/dev/shmem` (RAM): luôn `ulimit -c 0`. Demo từ PC: `python board/vlm_genie_demo.py --video
+<mp4> --times 0 5 9.3` (nạp model một lần cho mọi frame, kết quả + video trong `outputs/vlm_board_demo/`).
+
+| InternVL3.5-2B W4A16, ảnh 448×448 (256 token ảnh), prompt 281 token | Board SA8650P |
+|---|---|
+| Nạp model (một lần) | 9.2 s (ViT 1.7 s, LLM 7.8 s) |
+| Ảnh vào + ViT (NSP1) | 0.59 s |
+| Đọc prompt / token đầu tiên (NSP0) | 1,870 token/s / **0.15 s** |
+| Sinh token | 29.5 token/s |
+| Câu trả lời 24–56 token, tổng | 0.9–2.0 s (TB 1.54 s) |
+
+Token đầu tiên (action) sau ~0.74 s kể từ khi có ảnh: trong ngân sách 1 s. Model gốc chưa fine-tune: trên clip va chạm AU
+nó nhận ra xe máy ngã nhưng vẫn khuyên KEEP khi xe bạc cắt làn ở 24.8 s, cần fine-tune như v3.
+
+**Qwen2.5-VL-7B (bundle AI Hub) không chạy được trên board:** LLM 5 phần × ~826 MB trên DSP, một PD (không gian địa chỉ 32-bit)
+chỉ chứa được 3 phần (~2.5 GB); backend mở PD thứ 2 nhưng nạp lỗi 1004. Model VLM trên board này phải ≤ ~2.5 GB trên DSP.
+
 ## Giao thức
 
 Xem đầu file `vla_stream_server.cpp` ("VLASTREAM 1"). `third_party/stb_image.h` = stb_image v2.30 (public domain /
