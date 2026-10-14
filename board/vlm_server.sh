@@ -8,6 +8,7 @@
 #   greedy-text-generator-nsp1.json  greedy, the whole JSON with its reason (HUD text)
 #   think-text-generator-nsp1.json   thinking-mode demo (--set vlm.thinking=true)
 # All of them run the LLM with poll=false: busy-waiting was 3.5 % slower on this board and burns CPU.
+# IMG=<config> selects the vision-encoder config (default img-enc-nsp0.json = the bundle's vision_encoder.bin).
 # Needs the InternVL bundle in $DIR and the libQnnHtp.so shim (genie_htp_shim.sh); see board/README.md.
 # The perception server (board_server.sh) shares NSP0 with the vision encoder; the LLM has NSP1 to itself.
 set -euo pipefail
@@ -66,7 +67,7 @@ EOF
       CDSP_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp0' \
       CDSP1_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp1' \
       ADSP_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp0' && \
-      /usr/bin/toybox nohup bin/vlm_genie_server --port $PORT --dir $DIR --gen ${GEN:-fast-text-generator-nsp1.json} \
+      /usr/bin/toybox nohup bin/vlm_genie_server --port $PORT --dir $DIR --gen ${GEN:-fast-text-generator-nsp1.json} --image ${IMG:-img-enc-nsp0.json} \
       < /dev/null > $ROOT/vlm_server.log 2>&1 &" \
       < /dev/null > /dev/null 2>&1
     for _ in $(seq 1 60); do

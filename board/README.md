@@ -114,6 +114,43 @@ Lời giải thích đọc hiểu được nhưng lẫn chữ Hán và có chi t
 **Qwen2.5-VL-7B (bundle AI Hub) không chạy được trên board:** LLM 5 phần × ~826 MB trên DSP, một PD (không gian địa chỉ 32-bit)
 chỉ chứa được 3 phần (~2.5 GB); backend mở PD thứ 2 nhưng nạp lỗi 1004. Model VLM trên board này phải ≤ ~2.5 GB trên DSP.
 
+## Tối ưu VLM trên board (13–14/10/2026)
+
+Đo bằng `scripts/bench_board_vlm.py`: cùng prompt quyết định của project (679 token: 108 + 256 token ảnh + 315), 8 frame
+`highway_traffic.mp4` × 2 lượt, trung vị. **Mỗi quyết định: 2.50 s → 1.89 s (−24 %)**, cùng action trên mọi frame.
+
+| Bước | Thời gian / quyết định (PC) | Trên board |
+|---|---|---|
+| Ban đầu (JSON đủ + reason, poll, ảnh float32) | 2.50 s | ViT 576 ms, token đầu 892 ms, tổng 2269 ms, 39 token |
+| Context 1024 thay 4096 | 2.48 s | không đổi: Genie đã tự dùng graph cl nhỏ nhất đủ chỗ |
+| `poll: false` | 2.40 s | −3.5 % và CPU không còn busy-wait |
+| Dừng trước `"reason"` (`stop-sequence`, config `fast`) | 2.10 s | tổng 1867 ms, 22 token, parse 15/15 |
+| Ảnh uint8 (giao thức VLM2) + tất cả các bước trên | **1.89 s** | tổng 1813 ms; ngoài server 0.23 → 0.08 s |
+
+Còn lại: ViT 0.57 s (30 %), đọc prompt 0.31 s, sinh 22 token 0.93 s, PC + mạng 0.08 s.
+`fast-text-generator-nsp1.json` là mặc định (`scripts/run_demo.sh board`); cần reason trên HUD: `board-reason`.
+
+**Bundle AI Hub đã có sẵn** (đọc từ `qnn-context-binary-utility` và code recipe `qai_hub_models`): attention một head (SHA),
+Linear → Conv 1×1, eager attention, KV 8 bit với K chuyển vị và graph chỉ trả KV mới, embedding tách thành LUT, LM head
+8 bit, trọng số W4, O3 + VTCM 8 MB, weight sharing giữa graph AR128/AR1 × cl512/1024/2048/4096. Không gian residual của LLM
+được **quay bằng ma trận Hadamard** 2048×2048 (kiểu QuaRot/SpinQuant, dàn outlier trước khi lượng tử W4):
+`embedding_weights.raw = embed_tokens · R` (sai số 2.6e-8) và ViT xuất `features · R`.
+
+**ViT tự build** (`scripts/export_internvl_vit.py`: graph như recipe AI Hub, R gộp vào Linear cuối của projector,
+63 frame calib lái xe; QAIRT 2.46 W8A16 per-channel, O3 + VTCM 8), 17 frame đánh giá, so với float:
+
+| ViT | Board (một mình, NSP0) | SQNR vs float | Cosine token TB |
+|---|---|---|---|
+| AI Hub `vision_encoder.bin` | **569 ms** | 23.3 dB | 0.9964 |
+| Tự build W8A16 | 588 ms | 23.1 dB | 0.9963 |
+| + DLBC (`dlbc: 1`) / + `dlbc_weights` | 594 ms | đầu ra trùng từng bit | |
+| Tự build W8A8 | **98.7 ms** | −0.4 dB (hỏng) | 0.33 |
+
+Thay ViT tự build vào Genie (`IMG=img-enc-own.json`) chạy được, cùng quyết định; mặc định vẫn là ViT AI Hub (nhanh hơn 3 %).
+DLBC không có lợi trên SA8650P: cũng thử trên YOLOP lane (4.19 → 4.17 ms, trong nhiễu, đầu ra trùng từng bit).
+W8A8 nhanh gấp 5.8 lần nhưng activation 8 bit phá hỏng ViT (outlier): hướng tiếp theo là mixed precision (A8 cho phần
+lớn, 16 bit cho tensor nhạy cảm, phân tích SQNR từng lớp như với YOLO11s).
+
 ## Giao thức
 
 Xem đầu file `vla_stream_server.cpp` ("VLASTREAM 1"). `third_party/stb_image.h` = stb_image v2.30 (public domain /
