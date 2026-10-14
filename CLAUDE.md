@@ -298,6 +298,14 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   (KEEP at the cut-in of the AU crash clip): it must be fine-tuned like v3 before it is useful.
 - Qwen2.5-VL-7B does not fit: its LLM needs ~4.1 GB on the DSP, one 32-bit PD held 3 of 5 parts (~2.5 GB) and the second
   PD fails. VLMs for this board must stay under ~2.5 GB on the DSP.
+- Optimisation (2026-10-13/14, `board/README.md` "Tối ưu VLM", `scripts/bench_board_vlm.py`): 2.50 → 1.89 s per decision
+  (stop before "reason" = `fast` config, default; LLM poll=false; uint8 image protocol VLM2). Context 1024 vs 4096: no
+  change. The AI Hub bundle already has SHA, Linear→Conv, 8-bit transposed KV returning new entries only, LUT embedding,
+  int8 LM head, W4 weights, and a **Hadamard rotation R of the LLM residual space** (`embedding_weights.raw =
+  embed_tokens @ R`; the ViT outputs features @ R): any replacement ViT must fold R in (`scripts/export_internvl_vit.py`
+  does). Own W8A16 ViT = AI Hub quality, 3 % slower; DLBC no gain on the SA8650P (ViT and YOLOP lane); W8A8 ViT 98.7 ms
+  vs 569 ms but broken (-0.4 dB) -> mixed precision is the open lever. Remaining per decision: ViT 0.57 s, prefill
+  0.31 s, 22 tokens 0.93 s.
 - Quantizing a fine-tuned model with the AI Hub recipe needs a big GPU (SeqMSE/AdaScale refuse CPU; ~40 GB VRAM for 3B):
   LLM/VLM precisions are only w4a16 / w4. On the laptop even the ONNX export of InternVL3.5-2B (CPU, fp32) needs
   > 18 GB of RAM: the OOM killer took it and VS Code twice (2026-10-13). Quantize on a cloud / server GPU machine.
