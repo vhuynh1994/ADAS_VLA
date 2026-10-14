@@ -62,3 +62,14 @@ def test_board_vlm_prompt_split_and_pixels():
     assert before == "<|im_start|>user\n<img>" and after == "</img>\nEgo speed: 45 km/h.<|im_end|>"
     px = np.frombuffer(pixel_values(np.full((720, 1280, 3), 255, np.uint8)), np.float32).reshape(3, 448, 448)
     assert np.allclose(px[:, 0, 0], (1 - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225]), atol=1e-5)
+
+
+def test_board_vlm_uint8_pixels_match_float_path():
+    """VLM2 sends uint8 RGB and the board normalises it: same values as the float32 VLM1 input."""
+    from adas_vla.reasoning.board_vlm import MEAN, STD, pixel_values, rgb_448
+
+    frame = np.random.default_rng(0).integers(0, 256, (720, 1280, 3), np.uint8)  # BGR
+    rgb = rgb_448(frame)
+    assert rgb.shape == (448, 448, 3) and rgb.dtype == np.uint8
+    board = ((rgb.astype(np.float32) / np.float32(255.0) - MEAN) / STD).transpose(2, 0, 1)  # vlm_genie_server.cpp
+    assert np.array_equal(board.astype(np.float32).tobytes(), pixel_values(frame))

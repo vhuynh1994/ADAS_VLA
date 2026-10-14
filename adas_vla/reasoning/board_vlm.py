@@ -2,9 +2,9 @@
 
 Same interface as VisionLanguageModel.decide(): the project's decision prompt is rendered with InternVL's chat
 template on the PC (tokenizer files only, no weights), split around the image, and sent with the 448x448 image
-(NCHW float32, ImageNet normalisation: the AI Hub bundle's input) to the board, which returns the generated text.
-The board always generates the whole answer (Genie 1.18 ignores an early stop), so the reason is kept: it
-costs no latency here and the HUD shows it.
+(uint8 RGB, protocol VLM2; the board applies the ImageNet normalisation of the AI Hub bundle's float32 input) to
+the board, which returns the generated text. Where the answer stops is set by the server's generator config
+(board/vlm_server.sh): `fast` stops before "reason" (action only), `greedy` writes the reason too.
 """
 
 from __future__ import annotations
@@ -27,13 +27,18 @@ STD = np.array([0.229, 0.224, 0.225], np.float32)
 MENU_COPY = re.compile(r'"([A-Z_]+) = [^"]*"')  # zero-shot the base model may copy "KEEP = hold current speed"
 
 
-def pixel_values(image) -> bytes:
-    """PIL image or BGR array -> the bundle's 1x3x448x448 float32 input."""
+def rgb_448(image) -> np.ndarray:
+    """PIL image or BGR array -> 448x448x3 uint8 RGB (what the PC sends, protocol VLM2)."""
     from PIL import Image
 
     if isinstance(image, np.ndarray):
         image = Image.fromarray(image[:, :, ::-1])
-    rgb = np.asarray(image.convert("RGB").resize((448, 448), Image.BICUBIC), np.float32) / 255.0
+    return np.asarray(image.convert("RGB").resize((448, 448), Image.BICUBIC), np.uint8)
+
+
+def pixel_values(image) -> bytes:
+    """PIL image or BGR array -> the bundle's 1x3x448x448 float32 input (protocol VLM1; VLM2 does this on the board)."""
+    rgb = rgb_448(image).astype(np.float32) / 255.0
     return ((rgb - MEAN) / STD).transpose(2, 0, 1).astype(np.float32).tobytes()
 
 
@@ -70,7 +75,7 @@ class BoardVLM:
 
     def generate(self, image, before: str, after: str, max_new_tokens: int) -> str:
         blob = lambda b: struct.pack("<I", len(b)) + b  # noqa: E731
-        req = (b"VLM1" + blob(before.encode()) + blob(after.encode()) + blob(pixel_values(image))
+        req = (b"VLM2" + blob(before.encode()) + blob(after.encode()) + blob(rgb_448(image).tobytes())
                + struct.pack("<I", max_new_tokens))
         with self._lock:
             try:

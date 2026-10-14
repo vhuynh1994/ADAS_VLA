@@ -6,6 +6,8 @@
 //
 // Request : "VLM1", u32 len + prompt text before the image, u32 len + prompt text after it, u32 len + pixels
 //           (float32 NCHW 1x3x448x448, ImageNet-normalised RGB), u32 max_new_tokens (0 = no limit).
+//           "VLM2": the same with uint8 RGB HWC 448x448x3 pixels, normalised here with the same float32 operations
+//           (4x fewer bytes: the time outside the server per request went from ~0.23 s to ~0.08 s).
 // Response: "VLR1", i32 status (0 = ok), f32 image ms, f32 first token ms, f32 total ms, u32 tokens, u32 len + text.
 // The image is set after the first prompt part and before the second, so the embeddings reach the LLM in prompt
 // order. The text callback returns an error after max_new_tokens to ask Genie to stop, but the Genie 1.18 pipeline
@@ -91,6 +93,17 @@ static bool readBlob(int fd, std::string& out, size_t maxLen) {
   return len == 0 || readAll(fd, &out[0], len);
 }
 
+// uint8 RGB HWC -> float32 NCHW with the ImageNet normalisation, the same float32 operations as
+// adas_vla/reasoning/board_vlm.py: pixel_values() ((x / 255 - mean) / std).
+static void normalise(const std::string& rgb, std::string& out, int hw) {
+  static const float mean[3] = {0.485f, 0.456f, 0.406f}, stdv[3] = {0.229f, 0.224f, 0.225f};
+  out.resize(static_cast<size_t>(3) * hw * sizeof(float));
+  const unsigned char* src = reinterpret_cast<const unsigned char*>(rgb.data());
+  float* dst = reinterpret_cast<float*>(&out[0]);
+  for (int c = 0; c < 3; ++c)
+    for (int i = 0; i < hw; ++i) dst[c * hw + i] = (src[i * 3 + c] / 255.0f - mean[c]) / stdv[c];
+}
+
 static float ms(Clock::time_point a, Clock::time_point b) {
   return std::chrono::duration<float, std::milli>(b - a).count();
 }
@@ -156,20 +169,26 @@ int main(int argc, char** argv) {
     return 1;
   }
   fprintf(stderr, "listening on port %d\n", port);
-  const size_t pixelBytes = 3 * 448 * 448 * sizeof(float);
+  const int hw = 448 * 448;
+  const size_t pixelBytes = 3 * hw * sizeof(float), rgbBytes = 3 * hw;
   for (;;) {
     int fd = accept(srv, nullptr, nullptr);
     if (fd < 0) continue;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     fprintf(stderr, "client connected\n");
-    std::string before, after, pixels;
+    std::string before, after, pixels, rgb;
     for (;;) {
       char magic[4];
       uint32_t maxTokens = 0;
-      if (!readAll(fd, magic, 4) || memcmp(magic, "VLM1", 4) != 0 || !readBlob(fd, before, 1 << 20) ||
-          !readBlob(fd, after, 1 << 20) || !readBlob(fd, pixels, pixelBytes) || pixels.size() != pixelBytes ||
-          !readAll(fd, &maxTokens, 4))
+      if (!readAll(fd, magic, 4)) break;
+      const bool v2 = memcmp(magic, "VLM2", 4) == 0;
+      if (!v2 && memcmp(magic, "VLM1", 4) != 0) break;
+      if (!readBlob(fd, before, 1 << 20) || !readBlob(fd, after, 1 << 20)) break;
+      if (v2 ? !readBlob(fd, rgb, rgbBytes) || rgb.size() != rgbBytes
+             : !readBlob(fd, pixels, pixelBytes) || pixels.size() != pixelBytes)
         break;
+      if (!readAll(fd, &maxTokens, 4)) break;
+      if (v2) normalise(rgb, pixels, hw);
       Turn turn;
       turn.max_tokens = maxTokens;
       turn.start = Clock::now();

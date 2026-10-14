@@ -8,7 +8,9 @@
 #   v3          PC: perception + VLM v3 (Qwen2.5-VL-3B fine-tuned, ~1 s) + LLM Qwen3-4B explaining interventions (vi)
 #   7b          PC: perception + VLM Qwen2.5-VL-7B (base, zero-shot) with its reason on the HUD; no LLM (8 GB VRAM)
 #   7b-think    PC: as 7b, the VLM reasons step by step first (<think>, ~7 s per decision), shown on the HUD
-#   board       board: detector + lanes + VLM InternVL3.5-2B (base); PC: tracking, distance/TTC, safety gate, HUD
+#   board       board: detector + lanes + VLM InternVL3.5-2B (base, action only, ~1.9 s per decision);
+#               PC: tracking, distance/TTC, safety gate, HUD
+#   board-reason board: as board, the VLM also writes its reason for the HUD (~2.3 s per decision)
 #   board-think board: as board, InternVL's thinking mode (~20 s per decision)
 #   perception  board: detector + lanes only, rule-based decisions (no VLM)
 #
@@ -32,7 +34,7 @@ stop_all() {
 
 case "${1:-}" in
   stop) stop_all board; exit 0 ;;
-  v3|7b|7b-think|board|board-think|perception) ;;
+  v3|7b|7b-think|board|board-reason|board-think|perception) ;;
   *) sed -n 2,21p "$0"; exit 2 ;;
 esac
 MODE=$1
@@ -51,8 +53,9 @@ case $MODE in
                     --set vlm.generate_reason=true --log "$OUT.jsonl" "${COMMON[@]}") ;;
   7b-think)    CMD=(run --config configs/vlm_7b.yaml --show --vlm-mode process --set vlm.quantize_vision=true
                     --set vlm.thinking=true --log "$OUT.jsonl" "${COMMON[@]}") ;;
-  board|board-think)
-               GEN=greedy-text-generator-nsp1.json; THINK=()
+  board|board-reason|board-think)
+               GEN=fast-text-generator-nsp1.json; THINK=()
+               [ "$MODE" = board-reason ] && GEN=greedy-text-generator-nsp1.json
                if [ "$MODE" = board-think ]; then GEN=think-text-generator-nsp1.json; THINK=(--set vlm.thinking=true); fi
                bash board/board_server.sh start | tail -1
                GEN=$GEN bash board/vlm_server.sh start | tail -1

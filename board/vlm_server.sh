@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Build / deploy / start / stop the on-board VLM server (vlm_genie_server.cpp: InternVL3.5-2B through Genie).
 #   QNN_SDK_ROOT=<QAIRT 2.46> bash board/vlm_server.sh build    # cross-compile with the QNX SDP
-#   bash board/vlm_server.sh deploy   # copy the server, write the board configs (vision encoder NSP0, LLM NSP1, greedy)
+#   bash board/vlm_server.sh deploy   # copy the server, write the board configs (vision encoder NSP0, LLM NSP1)
 #   bash board/vlm_server.sh start | stop | log
-#   GEN=think-text-generator-nsp1.json bash board/vlm_server.sh start   # thinking-mode demo (--set vlm.thinking=true)
+# Generator configs (GEN=<name> bash board/vlm_server.sh start):
+#   fast-text-generator-nsp1.json    default: greedy, stops before "reason" (action only, ~0.4 s less per decision)
+#   greedy-text-generator-nsp1.json  greedy, the whole JSON with its reason (HUD text)
+#   think-text-generator-nsp1.json   thinking-mode demo (--set vlm.thinking=true)
+# All of them run the LLM with poll=false: busy-waiting was 3.5 % slower on this board and burns CPU.
 # Needs the InternVL bundle in $DIR and the libQnnHtp.so shim (genie_htp_shim.sh); see board/README.md.
 # The perception server (board_server.sh) shares NSP0 with the vision encoder; the LLM has NSP1 to itself.
 set -euo pipefail
@@ -41,13 +45,16 @@ ext1 = cat("htp_backend_ext_config.json"); ext1["devices"][0]["device_id"] = 1
 enc = cat("img-enc-htp.json"); enc["image-encoder"]["engine"]["model"].pop("vision-param", None)
 base = cat("text-generator.json")
 base["text-generator"]["engine"]["backend"]["extensions"] = "htp_ext_nsp1.json"
+base["text-generator"]["engine"]["backend"]["QnnHtp"]["poll"] = False
 gen = json.loads(json.dumps(base)); gen["text-generator"]["sampler"].update({"top-k": 1, "temp": 0.0001})
-gen["text-generator"]["max-num-tokens"] = 64  # the decision JSON with its reason is ~50 tokens
+gen["text-generator"]["max-num-tokens"] = 64  # the decision JSON with its reason is ~40 tokens
+fast = json.loads(json.dumps(gen)); fast["text-generator"]["stop-sequence"] = ['"reason"']  # the parser keeps the
+# complete fields before it (board_vlm.py)
 # thinking mode (demo): OpenGVLab recommends sampling at temperature 0.6; at most 700 tokens (~25 s on the board)
 think = json.loads(json.dumps(base)); think["text-generator"]["sampler"].update({"top-k": 40, "top-p": 0.95, "temp": 0.6})
 think["text-generator"]["max-num-tokens"] = 700
 for name, cfg in (("htp_ext_nsp1.json", ext1), ("img-enc-nsp0.json", enc), ("greedy-text-generator-nsp1.json", gen),
-                  ("think-text-generator-nsp1.json", think)):
+                  ("fast-text-generator-nsp1.json", fast), ("think-text-generator-nsp1.json", think)):
     put(name, cfg)
 print("configs written in", d)
 EOF
@@ -59,7 +66,7 @@ EOF
       CDSP_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp0' \
       CDSP1_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp1' \
       ADSP_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp0' && \
-      /usr/bin/toybox nohup bin/vlm_genie_server --port $PORT --dir $DIR --gen ${GEN:-greedy-text-generator-nsp1.json} \
+      /usr/bin/toybox nohup bin/vlm_genie_server --port $PORT --dir $DIR --gen ${GEN:-fast-text-generator-nsp1.json} \
       < /dev/null > $ROOT/vlm_server.log 2>&1 &" \
       < /dev/null > /dev/null 2>&1
     for _ in $(seq 1 60); do
