@@ -30,8 +30,10 @@ def _font(size: int):
 
 
 class HUD:
-    def __init__(self):
+    def __init__(self, bev=None):
+        """bev: an adas_vla.bev.BEVRenderer; its bird's-eye panel is put to the right of every drawn frame."""
         self._fonts = {s: _font(s) for s in (14, 16, 20, 28)}
+        self.bev = bev
 
     def draw(self, frame: np.ndarray, res: FrameResult, copilot: str | None = None,
              max_width: int | None = None) -> np.ndarray:
@@ -111,7 +113,10 @@ class HUD:
             for i, line in enumerate(wrapped):
                 texts.append(((10, h - box_h + 5 + 22 * i), line, 16, (255, 255, 255)))
 
-        return self._render_text(img, texts)
+        out = self._render_text(img, texts)
+        if self.bev is not None:
+            out = np.hstack([out, self.bev.render(res.context, out.shape[0])])
+        return out
 
     @staticmethod
     def _draw_lanes(img: np.ndarray, lanes: LaneInfo, h: int, k: float = 1.0) -> None:

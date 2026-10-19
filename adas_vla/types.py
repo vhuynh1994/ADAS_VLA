@@ -160,6 +160,7 @@ class SceneContext:
     ego: EgoState
     detections: list[Detection] = field(default_factory=list)
     lanes: LaneInfo = field(default_factory=LaneInfo)
+    horizon_y: float | None = None  # flat-road horizon row (px) used by the geometry (see bev.py)
 
     def lead_object(self) -> Detection | None:
         """Nearest object in the ego path, or cutting into it (vehicle or vulnerable road user)."""

@@ -324,6 +324,16 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   LLM tensors only differ by name, `merge.RENAMES`), quantize it with the AI Hub recipe (`--checkpoint`, `--skip-veg`:
   the vision encoder is unchanged) on a big-GPU machine, compile for SA8775P, run with board/vlm_genie_demo.py.
 
+## Bird's-eye view, map step 1 (2026-10-19)
+- `adas_vla/bev.py` + `--bev` on `run` / `demo` (`BEV=1 scripts/run_demo.sh ...`): panel beside the HUD with the ego
+  lane lines and objects on the road plane, same flat-road model as `perception/geometry.py`; the horizon row the
+  geometry used is now `SceneContext.horizon_y` (`MotionEstimator.horizon_y`). Lanes drawn to 45 m, objects to 60 m
+  (beyond: a marker on the top edge). Monocular estimate: a 0.5 deg pitch error moves a road point at 40 m to 32-55 m.
+  Clipped boxes at the side edge (not the bottom) keep their box-height distance, often too far. Demo:
+  `outputs/bev_highway.mp4`. Next map steps (not started): accumulate BEV lanes along comma2k19 drives with
+  `global_pose` (per-frame ECEF position + orientation) into a route lane map; learned map model (nuScenes-mini has
+  vector maps in `maps/expansion`).
+
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.

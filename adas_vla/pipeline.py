@@ -249,7 +249,7 @@ class ADASPipeline:
         with timer("geometry"):
             self.motion.update(detections, t, lanes, w, h, ego.speed_mps, depth=depth)
         return SceneContext(frame_idx=frame_idx, timestamp_s=t, width=w, height=h, ego=ego,
-                            detections=detections, lanes=lanes)
+                            detections=detections, lanes=lanes, horizon_y=self.motion.horizon_y)
 
     @staticmethod
     def scene_signature(ctx: SceneContext) -> tuple:

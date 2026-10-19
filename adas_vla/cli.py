@@ -29,6 +29,12 @@ def _load_cfg(args):
     return cfg
 
 
+def _bev(cfg):
+    from .bev import BEVRenderer
+
+    return BEVRenderer.from_config(cfg)
+
+
 def cmd_run(args) -> None:
     import cv2
 
@@ -44,7 +50,7 @@ def cmd_run(args) -> None:
     if args.vlm_every:
         cfg.vlm.every_n_frames = args.vlm_every
     pipe = ADASPipeline(cfg)
-    hud = HUD()
+    hud = HUD(bev=_bev(cfg) if args.bev else None)
     writer = None
     log_file = open(args.log, "w") if args.log else None
     ego = EgoState(speed_kmh=cfg.ego_speed_kmh)
@@ -263,7 +269,7 @@ def cmd_demo(args) -> None:
     cfg.vlm.enabled = True
     pipe = ADASPipeline(cfg)  # VLM (vision-language) inside the VLA loop
     llm = TextLLM(cfg.llm)  # text-only LLM for explanations
-    hud, detector = HUD(), EventDetector(args.min_gap)
+    hud, detector = HUD(bev=_bev(cfg) if args.bev else None), EventDetector(args.min_gap)
     ego = EgoState(speed_kmh=cfg.ego_speed_kmh)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -435,6 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--display-width", type=int, default=1280,
                    help="draw the HUD on frames downscaled to this width (window and --output), 0 = full size")
     p.add_argument("--max-frames", type=int)
+    p.add_argument("--bev", action="store_true", help="add a bird's-eye view panel (lanes + objects on the road plane)")
     p.add_argument("--vlm-mode", choices=["sync", "async", "process"])
     p.add_argument("--vlm-every", type=int, help="run the VLM every N frames")
     p.set_defaults(func=cmd_run)
@@ -507,6 +514,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--show", action="store_true", help="live window (q, Esc or closing it quits); the LLM then "
                    "explains in the background instead of pausing the video")
     p.add_argument("--display-width", type=int, default=1280, help="max width of the window image")
+    p.add_argument("--bev", action="store_true", help="add a bird's-eye view panel (lanes + objects on the road plane)")
     p.set_defaults(func=cmd_demo)
 
     p = sub.add_parser("explain", help="LLM explains ADAS interventions found in a run log")

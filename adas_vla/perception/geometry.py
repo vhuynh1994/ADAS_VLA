@@ -209,6 +209,7 @@ class MotionEstimator:
         self.oncoming_head_on_m = oncoming_head_on_m
         self.horizon_tau_s = horizon_tau_s
         self._horizon: tuple[float, float] | None = None  # (t, smoothed horizon as a fraction of the height)
+        self.horizon_y: float | None = None  # horizon row (px) of the last update(), used by the BEV view
         self._tracks: dict[int, _Track] = {}
         self._votes: dict[int, dict[str, float]] = {}  # track id -> class -> summed confidence
 
@@ -224,6 +225,7 @@ class MotionEstimator:
         self._tracks.clear()
         self._votes.clear()
         self._horizon = None
+        self.horizon_y = None
         if self._aligner is not None:
             self._aligner.reset()
 
@@ -255,6 +257,7 @@ class MotionEstimator:
                    for det in detections]
         refined = self._depth_distances(detections, pinhole, depth, height, t) if depth is not None else None
         horizon_y = self.horizon_row(lanes, t, height)
+        self.horizon_y = horizon_y
         cam_h = self.camera.mount_height_m
         for i, det in enumerate(detections):
             det.distance_m, det.distance_source = pinhole[i], "pinhole"

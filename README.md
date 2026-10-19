@@ -49,6 +49,9 @@ adas-vla run --source data/samples/highway_traffic.mp4 --output outputs/demo.mp4
 # chỉ perception + rules (không load VLM), để test nhanh
 adas-vla run --source data/samples/highway_traffic.mp4 --no-vlm --output outputs/rules.mp4
 
+# thêm bản đồ nhìn từ trên xuống (BEV) cạnh HUD: làn + vật thể trên mặt đường, ước lượng từ 1 camera
+adas-vla run --source data/samples/highway_traffic.mp4 --no-vlm --bev --show
+
 # camera trực tiếp: VLM chạy ở process riêng (thread `async` làm perception đứng ~240 ms mỗi lần VLM prefill)
 adas-vla run --source 0 --show --vlm-mode process
 

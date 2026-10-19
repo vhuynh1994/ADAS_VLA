@@ -15,6 +15,7 @@
 #   perception  board: detector + lanes only, rule-based decisions (no VLM)
 #
 # Results: outputs/demo_<mode>_<video name>.mp4 and .jsonl (per-frame decisions; thinking text included).
+# BEV=1 scripts/run_demo.sh <mode> <video> adds a bird's-eye view panel (lanes + objects on the road plane).
 # The board modes start the board servers and leave them running: `scripts/run_demo.sh stop` stops everything.
 # Examples:
 #   scripts/run_demo.sh 7b-think data/samples/highway_traffic.mp4
@@ -35,7 +36,7 @@ stop_all() {
 case "${1:-}" in
   stop) stop_all board; exit 0 ;;
   v3|7b|7b-think|board|board-reason|board-think|perception) ;;
-  *) sed -n 2,21p "$0"; exit 2 ;;
+  *) sed -n 2,22p "$0"; exit 2 ;;
 esac
 MODE=$1
 [ $# -ge 2 ] || { echo "usage: $0 $MODE <video> [ego_speed_kmh]"; exit 2; }
@@ -46,6 +47,7 @@ NAME=$(basename "${VIDEO%.*}")
 OUT="outputs/demo_${MODE}_${NAME}"
 A="$ROOT/.venv/bin/adas-vla"
 COMMON=(--source "$VIDEO" --ego-speed "$EGO" --output "$OUT.mp4")
+[ -n "${BEV:-}" ] && COMMON+=(--bev)  # BEV=1: bird's-eye view panel beside the HUD
 
 case $MODE in
   v3)          CMD=(demo --show --set vlm.mode=process "${COMMON[@]}") ;;
