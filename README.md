@@ -52,6 +52,12 @@ adas-vla run --source data/samples/highway_traffic.mp4 --no-vlm --output outputs
 # thêm bản đồ nhìn từ trên xuống (BEV) cạnh HUD: làn + vật thể trên mặt đường, ước lượng từ 1 camera
 adas-vla run --source data/samples/highway_traffic.mp4 --no-vlm --bev --show
 
+# bản đồ làn của cả tuyến comma2k19 (BEV từng frame + global_pose), và so 2 lần chạy cùng đường
+python scripts/build_lane_map.py --list
+python scripts/build_lane_map.py --route 2018-07-27--06-03-57 --lane-width 3.66
+python scripts/build_lane_map.py --route 2018-07-30--13-03-07 --cam-height 1.377 --frame-from outputs/lane_map/2018-07-27--06-03-57/points.npz
+python scripts/compare_lane_maps.py outputs/lane_map/2018-07-27--06-03-57 outputs/lane_map/2018-07-30--13-03-07
+
 # camera trực tiếp: VLM chạy ở process riêng (thread `async` làm perception đứng ~240 ms mỗi lần VLM prefill)
 adas-vla run --source 0 --show --vlm-mode process
 

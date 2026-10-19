@@ -19,6 +19,7 @@ class LaneDetector:
         self._fits: dict[str, tuple[float, float] | None] = {"left": None, "right": None}
         self._missing = {"left": 0, "right": 0}
         self.last_timing: dict[str, float] = {}  # stage split of the last call, ms (lane_pre / lane_model)
+        self.last_mask: np.ndarray | None = None
 
     def reset(self) -> None:
         self._fits = {"left": None, "right": None}
@@ -58,6 +59,7 @@ class LaneDetector:
     def __call__(self, frame_bgr: np.ndarray) -> LaneInfo:
         h, w = frame_bgr.shape[:2]
         mask = self._mask(frame_bgr)
+        self.last_mask = mask  # lane-marking pixels of the last frame (H x W, 0/255), e.g. for the route lane map
         lines = cv2.HoughLinesP(mask, rho=2, theta=np.pi / 180, threshold=25,
                                 minLineLength=int(0.03 * h), maxLineGap=int(0.15 * h))
         sides: dict[str, list] = {"left": [], "right": []}

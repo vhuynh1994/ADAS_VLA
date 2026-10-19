@@ -330,9 +330,21 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   geometry used is now `SceneContext.horizon_y` (`MotionEstimator.horizon_y`). Lanes drawn to 45 m, objects to 60 m
   (beyond: a marker on the top edge). Monocular estimate: a 0.5 deg pitch error moves a road point at 40 m to 32-55 m.
   Clipped boxes at the side edge (not the bottom) keep their box-height distance, often too far. Demo:
-  `outputs/bev_highway.mp4`. Next map steps (not started): accumulate BEV lanes along comma2k19 drives with
-  `global_pose` (per-frame ECEF position + orientation) into a route lane map; learned map model (nuScenes-mini has
-  vector maps in `maps/expansion`).
+  `outputs/bev_highway.mp4`.
+- Map step 2 (2026-10-19): `scripts/build_lane_map.py` (+ `adas_vla/mapping.py`, tests/test_mapping.py): every YOLOP
+  lane-mask pixel 4-15 m ahead projected with the BEV model and placed with comma2k19 `global_pose` (quaternions are
+  scalar-first, device x forward; camera heading from the quaternion, -0.66 deg from the travel direction). Points
+  are stored per metre of camera height, so `--lane-width 3.66` calibrates the height afterwards: the ego lane came out
+  3.25 m at 6, 9 and 12 m alike with the assumed 1.22 m (uniform scale, so the horizon is fine) -> height 1.377 m.
+  Route 2018-07-27--06-03-57 (I-280 southbound, 13.3 km, 9 min, 4.3 M points, ~75 s on the laptop): marking lines
+  30-45 cm wide (FWHM) on 200 m stretches, the adjacent lane line (not used for calibration) 3.68 m away.
+  Drive 2018-07-30--13-03-07 with that height: ego lane 3.69-3.70 m. `scripts/compare_lane_maps.py`: lines of the
+  two drives over 43 stretches: median 0.64 m apart, mostly a slowly drifting GNSS bias (+0.2..+0.7 m per 4 km);
+  after removing a 2 km moving median the residual is 0.20 m median, 0.44 m p90. YOLOP lane masks are continuous
+  across dashes (BDD100K polylines), so dash periodicity cannot be used as a check. Pitfall fixed while measuring:
+  curvilinear "along" positions must add the offset along the path from the nearest sample (snapping to samples
+  1.6 m apart made fake dashes). Next: register drives to each other before fusing (the GNSS bias dominates);
+  learned map model (nuScenes-mini has vector maps in `maps/expansion`).
 
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
