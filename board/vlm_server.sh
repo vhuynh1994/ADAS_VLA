@@ -10,11 +10,15 @@
 # All of them run the LLM with poll=false: busy-waiting was 3.5 % slower on this board and burns CPU.
 # IMG=<config> selects the vision-encoder config (default img-enc-nsp0.json = the bundle's vision_encoder.bin).
 # Needs the InternVL bundle in $DIR and the libQnnHtp.so shim (genie_htp_shim.sh); see board/README.md.
+# MODEL=v3: the fine-tuned Qwen2.5-VL adas-vlm-v3 built with scripts/v3_qnn.py (bundle sa8650) in $ROOT/adas_vlm_v3;
+#   `MODEL=v3 bash board/vlm_server.sh deploy` copies data/qnn_v3/bundle/sa8650 (its configs are written by
+#   `scripts/v3_qnn.py bundle`), `start` passes --qwen 308x560 (PC client: vlm.board_processor=models/adas-vlm-v3).
 # The perception server (board_server.sh) shares NSP0 with the vision encoder; the LLM has NSP1 to itself.
 set -euo pipefail
 BOARD=${BOARD:-root@192.168.0.73}
 ROOT=${ROOT:-/data/adas_vla_genie}
-DIR=${DIR:-$ROOT/internvl3_5_2b}
+MODEL=${MODEL:-internvl}
+if [ "$MODEL" = v3 ]; then DIR=${DIR:-$ROOT/adas_vlm_v3}; QWEN="--qwen 308x560"; else DIR=${DIR:-$ROOT/internvl3_5_2b}; QWEN=""; fi
 PORT=${PORT:-50053}
 HERE=$(cd "$(dirname "$0")" && pwd)
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=8 $BOARD"
@@ -35,6 +39,13 @@ case "${1:-}" in
   deploy)
     $SSH "$STOP" > /dev/null
     scp -q -o BatchMode=yes "$HERE/build/vlm_genie_server" "$BOARD:$ROOT/bin/"
+    if [ "$MODEL" = v3 ]; then
+      SRC=$(readlink -f "$HERE/../data")/qnn_v3/bundle/sa8650
+      $SSH "/usr/bin/toybox mkdir -p $DIR"
+      scp -q -o BatchMode=yes -r "$SRC"/* "$BOARD:$DIR/"  # follows the symlinks to the binaries and the LUT
+      $SSH "/usr/bin/toybox ls -la $DIR; /usr/bin/toybox stat -f /data | /usr/bin/toybox grep Blocks"  # QNX has no df
+      exit 0
+    fi
     # vision encoder: the bundle's config without vision-param on NSP0; LLM: greedy sampling on NSP1
     BOARD=$BOARD DIR=$DIR python3 - <<'EOF'
 import json, os, subprocess
@@ -61,17 +72,18 @@ print("configs written in", d)
 EOF
     ;;
   start)
-    $SSH "$STOP" > /dev/null
+    $SSH "$STOP; /usr/bin/toybox rm -f $ROOT/vlm_server.log" > /dev/null  # no stale "listening" from the last run
     $SSHF "ulimit -c 0; cd $ROOT && /usr/bin/toybox chmod 755 bin/vlm_genie_server && \
       export LD_LIBRARY_PATH=$ROOT/shim:/mnt/qnn2.46 LD_PRELOAD=/mnt/lib64/libfastrpc_pmem.so \
       CDSP_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp0' \
       CDSP1_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp1' \
       ADSP_LIBRARY_PATH='/mnt/etc/images/dsp;/mnt/dsplib/image/dsp/cdsp0' && \
-      /usr/bin/toybox nohup bin/vlm_genie_server --port $PORT --dir $DIR --gen ${GEN:-fast-text-generator-nsp1.json} --image ${IMG:-img-enc-nsp0.json} \
+      /usr/bin/toybox nohup bin/vlm_genie_server --port $PORT --dir $DIR --gen ${GEN:-fast-text-generator-nsp1.json} --image ${IMG:-img-enc-nsp0.json} $QWEN \
       < /dev/null > $ROOT/vlm_server.log 2>&1 &" \
       < /dev/null > /dev/null 2>&1
     for _ in $(seq 1 60); do
-      if $SSH "/usr/bin/toybox grep -q -E 'listening|failed|cannot' $ROOT/vlm_server.log" 2>/dev/null; then break; fi
+      # "failed: <code>" = a Genie call failed (vlm_genie_server CHECK); "failed to set affinity" is a harmless warning
+      if $SSH "/usr/bin/toybox grep -q -E 'listening on port|failed: -?[0-9]|cannot ' $ROOT/vlm_server.log" 2>/dev/null; then break; fi
       sleep 1
     done
     $SSH "/usr/bin/toybox grep -v -E 'Alloc2 Support|affinity|^\$' $ROOT/vlm_server.log | /usr/bin/toybox tail -5" ;;

@@ -12,6 +12,8 @@
 #               PC: tracking, distance/TTC, safety gate, HUD
 #   board-reason board: as board, the VLM also writes its reason for the HUD (~2.3 s per decision)
 #   board-think board: as board, InternVL's thinking mode (~20 s per decision)
+#   board-v3    board: detector + lanes + VLM v3 (fine-tuned Qwen2.5-VL-3B built with scripts/v3_qnn.py: W4 GPTQ,
+#               action after ~0.7 s, ~2.7 s per decision); PC: tracking, distance/TTC, safety gate, HUD
 #   perception  board: detector + lanes only, rule-based decisions (no VLM)
 #
 # Results: outputs/demo_<mode>_<video name>.mp4 and .jsonl (per-frame decisions; thinking text included).
@@ -35,8 +37,8 @@ stop_all() {
 
 case "${1:-}" in
   stop) stop_all board; exit 0 ;;
-  v3|7b|7b-think|board|board-reason|board-think|perception) ;;
-  *) sed -n 2,22p "$0"; exit 2 ;;
+  v3|7b|7b-think|board|board-reason|board-think|board-v3|perception) ;;
+  *) sed -n 2,24p "$0"; exit 2 ;;
 esac
 MODE=$1
 [ $# -ge 2 ] || { echo "usage: $0 $MODE <video> [ego_speed_kmh]"; exit 2; }
@@ -63,6 +65,10 @@ case $MODE in
                GEN=$GEN bash board/vlm_server.sh start | tail -1
                CMD=(run --show --vlm-mode async --set perception.backend=board --set vlm.backend=board "${THINK[@]}"
                     --log "$OUT.jsonl" "${COMMON[@]}") ;;
+  board-v3)    bash board/board_server.sh start | tail -1
+               MODEL=v3 bash board/vlm_server.sh start | tail -1
+               CMD=(run --show --vlm-mode async --set perception.backend=board --set vlm.backend=board
+                    --set vlm.board_processor=models/adas-vlm-v3 --log "$OUT.jsonl" "${COMMON[@]}") ;;
   perception)  bash board/board_server.sh start | tail -1
                CMD=(run --show --no-vlm --set perception.backend=board --log "$OUT.jsonl" "${COMMON[@]}") ;;
 esac

@@ -131,6 +131,19 @@ adas-vla export --out outputs/deploy            # YOLO → ONNX static [1,3,384,
 adas-vla export --out outputs/deploy --qnn-arch 79   # thêm bản Ultralytics QNN (onnxruntime-qnn)
 ```
 
+VLM v3 (Qwen2.5-VL-3B fine-tune) → HTP bằng QAIRT 2.46, binary cho SA8650P (v73) và SA8797P (v81), chạy bằng Genie
+trên board (số đo và các vấn đề đã gặp: [board/README.md](board/README.md), chi tiết kỹ thuật: `CLAUDE.md`):
+
+```bash
+python scripts/v3_qnn.py export vit part1 part2 part3 part4 lut   # ONNX dạng HTP (SHA, conv 1x1, KV), xoay Hadamard
+python scripts/v3_qnn.py calib-vit && python scripts/v3_qnn.py gptq  # ảnh calibration ViT; GPTQ W4 cho LLM (GPU)
+python scripts/v3_qnn.py export part1 part2 part3 part4 --gptq data/qnn_v3/gptq_w4.safetensors
+python scripts/v3_qnn.py calib && python scripts/v3_qnn.py overrides --gptq data/qnn_v3/gptq_w4.safetensors
+bash scripts/v3_qnn_build.sh convert <graph>... && bash scripts/v3_qnn_build.sh quantize <graph>...
+bash scripts/v3_qnn_build.sh ctx sa8650 && bash scripts/v3_qnn_build.sh ctx sa8797   # context binaries
+python scripts/v3_qnn.py bundle sa8650 && MODEL=v3 bash board/vlm_server.sh deploy
+```
+
 ## Cấu trúc
 
 ```

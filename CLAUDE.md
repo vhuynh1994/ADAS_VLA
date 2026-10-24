@@ -346,6 +346,59 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   1.6 m apart made fake dashes). Next: register drives to each other before fusing (the GNSS bias dominates);
   learned map model (nuScenes-mini has vector maps in `maps/expansion`).
 
+## adas-vlm-v3 on the HTP: own QAIRT build for SA8650P (v73) and SA8797P (v81) (2026-10-23)
+Owner's 7-step pipeline (PC run -> verify model / tokenizer / preprocessing / output -> QAIRT/QNN survey -> operators
+and quantization -> build for SA8797P + QNX -> run on the board -> latency, RAM, accuracy) on the fine-tuned v3.
+No SA8797P board exists: binaries are built for both SoCs (QAIRT 2.46 has hexagon-v81, soc_id 72), run on the SA8650P.
+- Code: `adas_vla/deploy/qwen_vl.py` (the model in its HTP form: patchify, ViT with window masks as inputs, LLM in 4
+  parts with the I/O of the AI Hub Qwen2.5-VL-7B Genie bundle - SHA, 1x1 convs, transposed 8-bit KV, new KV out,
+  M-RoPE cos/sin inputs, LUT embedding - and a Genie-like AR128/AR1 generator), `deploy/qwen_vl_sim.py` (decide() on
+  it, float or simulated precisions, plugs into `training.evaluate`), `deploy/gptq.py`, `scripts/v3_qnn.py`
+  (check-hf / check-deploy / eval / export / calib-vit / calib / gptq / overrides / eval-part / eval-vit / bundle /
+  eval-board / compare), `scripts/v3_qnn_build.sh` (convert / quantize / ctx SOC / info), `tests/test_qwen_vl.py`
+  (tiny random Qwen2.5-VL from transformers vs the deployment form, incl. all rotations, GPTQ). Big files in
+  `data/qnn_v3` (SSD, ~45 GB): ONNX, calibration raws, DLCs, binaries; docker runs mount the SSD (WORK=).
+- Step 2 (fp32, CPU, 3 val prompts vs transformers): token ids, pixel values (4.8e-7), M-RoPE positions identical,
+  ViT features cos 1.0, last-token logits max |diff| 5e-5, 24 greedy tokens identical. **The additive LLM mask must
+  be deep**: with -100 (InternVL bundle) the logits moved 0.87 - layer 27 has heads whose valid logits reach -748 while
+  future tokens of the same prefill chunk score +391 above the row max, layer 0 reaches +1348. Graphs use -1000.
+- Float reference (bf16 GPU, plain greedy like Genie) agrees 93-95 % with the PC nf4 evals (`compare`), first 374
+  val samples 79.4 % joint (PC nf4 77.5 / 79.1 %). `eval_float.jsonl` + `eval_float_b.jsonl` = the 900.
+- Quantization (simulated on 100 val samples, R1 Hadamard on the LLM residual): 4-bit round-to-nearest weights per
+  channel 48 % agreement with float (joint 46 vs 74 %), LPBQ-64 RTN 56 %, 8-bit KV alone 98 % -> **the weights**;
+  **GPTQ** 4-bit per channel (48 train prompts with their answers, 7 s per layer on the 4060, output error ~10x lower
+  than RTN) + 8-bit KV: 98 % agreement, joint 76 %. Per-channel grids go to QAIRT as legacy overrides (LPBQ would
+  need the v1.0.0 format), the ONNX holds the GPTQ weights so QAIRT's rounding is exact.
+- ViT: Qwen2.5-VL's ViT residual reaches 7.7e3 (block 17) and 2.8e4 (block 31) in a few channels: W8A16 gave 12.8 dB
+  SQNR (emulator). Rotating the ViT residual (orthogonal 1280 = H256 (x) Q5, folded into patch embed / readers /
+  writers / merger) brings the max to 416 / 1163 and 20.4 dB, token cosine 0.995 (InternVL own ViT: 23.1 dB). **The
+  bf16 ViT of the PC pipeline (and of v3's fine-tune) is only 15.2 dB from fp32** (worst token cosine 0.58): never use
+  bf16 features as the ViT's float reference (with the residual rotation bf16 only reaches 16.8 dB: the error builds up
+  everywhere). Decisions barely care: the float LLM with float32 ViT features (`vit-cache`, `eval --vit-cache`,
+  `eval_float_vit32.jsonl`) makes the same decision as with the bf16 ViT on 98.8 % of the 900 (joint 76.9 vs 77.3 %,
+  under-braking 10.8 % both), so a ~20 dB ViT on the HTP is not where board errors would come from.
+- Simulated board configuration on all 900 val (R1 + GPTQ W4 + KV8, `sim_r1_gptq4_kv8_900.jsonl`): joint 76.1 %,
+  under-braking 9.8 %, 96.1 % same decisions as float (77.3 % / 10.8 %); the PC nf4 model is 87-89 % from float.
+- QAIRT: every graph converts with standard ops only (Conv 1x1, MatMul, Softmax, RmsNorm fused, Gather in the ViT).
+  Emulator, part 1 AR128 vs its float ONNX (same GPTQ weights): hidden_9 18.3 dB, KV 21.7 dB (worst 14.1). Context
+  binaries (O3, VTCM 8 MB, AR128 + AR1 weight-shared, `bin/sa8650`, `bin/sa8797` identical layouts): parts 1-3 344 MiB,
+  part 4 647 MiB (8-bit LM head; AR128 spill-fill 37 MiB), ViT 658 MiB -> LLM 1.64 GiB on the DSP (< ~2.5 GB per PD).
+  `check-bins`: the 75 tensors Genie copies between graphs (KV x 36 layers, hidden 9/18/27) share one encoding each.
+  The generator logs 3 "wtshare ... small.is_shared()" errors per part (v73 and v81 alike) and still writes the binary.
+- **Board (SA8650P, 2026-10-24)**: Genie loads the own bundle in 13 s (ViT NSP0, LLM NSP1) and its M-RoPE handles our
+  11x20 image grid: the first 5 val answers were character-identical to float. `eval-board`, 900 val
+  (`eval_board_sa8650.jsonl`): JSON 100 %, joint 75.8 %, under-braking 10.2 % (9.1 % after the gate), 95.6 % same
+  decisions as float (simulation said 96.1 %). Timing p50: ViT 307 ms, action token 711 ms, 22 tokens 2.66 s, PC round
+  trip 2.70 s (p90 2.84). Memory: CPU RAM 2.59 GB (the 1.24 GB LUT is loaded twice: text encoder + generator), HTP DMA
+  2.83 GB (`showmem -s`, server running minus stopped).
+- Decode speed (`genie-app` profile of the text dialog, 421-token prompt, log at verbose): Genie runs the AR1 graphs for
+  generation (ar1_* in the log); AR1 parts 1-3 take 17.4 ms each (347 MB of W4 weights, ~20 GB/s), part 4 25.4 ms (+ LM
+  head ~8 ms) -> 79.6 ms/token, 12.6 tok/s; AR128 parts take ~19 ms, i.e. both are weight-streaming bound. poll=true
+  (12.2 tok/s) and NSP1 (12.5) change nothing. AI Hub InternVL measured the same way: 23.6 tok/s, parts of 9 layers ~10 ms
+  (~22.6 GB/s): our graphs are within ~10-15 % per byte; v3 is slower because it reads 1.70 GB per token vs 1.01 GB.
+  The server's node pipeline adds ~12 ms per token (92 ms). Levers: fewer generated tokens (the action is token 1),
+  4-bit LM head, the server overhead, speculative decoding of the JSON.
+
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.

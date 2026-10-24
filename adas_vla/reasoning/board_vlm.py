@@ -1,19 +1,26 @@
-"""VLM on the SA8650P board (`vlm.backend: board`): InternVL3.5-2B served by board/vlm_genie_server.cpp.
+"""VLM on the SA8650P board (`vlm.backend: board`): a Genie VLM served by board/vlm_genie_server.cpp, either
+InternVL3.5-2B (AI Hub bundle) or the fine-tuned Qwen2.5-VL adas-vlm-v3 built by scripts/v3_qnn.py; which one
+follows from `vlm.board_processor` (config.json model_type).
 
-Same interface as VisionLanguageModel.decide(): the project's decision prompt is rendered with InternVL's chat
-template on the PC (tokenizer files only, no weights), split around the image, and sent with the 448x448 image
-(uint8 RGB, protocol VLM2; the board applies the ImageNet normalisation of the AI Hub bundle's float32 input) to
-the board, which returns the generated text. Where the answer stops is set by the server's generator config
-(board/vlm_server.sh): `fast` stops before "reason" (action only), `greedy` writes the reason too.
+Same interface as VisionLanguageModel.decide(): the project's decision prompt is rendered with the model's chat
+template on the PC (tokenizer files only, no weights), split around the image, and sent with the image to the
+board, which returns the generated text. InternVL: 448x448 uint8 RGB (protocol VLM2; the board applies the
+ImageNet normalisation of the bundle's float32 input). Qwen2.5-VL: uint8 RGB at vlm.image_size (560x308; VLM3, the
+board cuts the 14x14 patches like the Qwen2-VL processor; server started with --qwen). Where the answer stops is
+set by the server's generator config (board/vlm_server.sh): `fast` stops before "reason" (action only), `greedy`
+writes the reason too.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import socket
 import struct
 import threading
 import time
+
+from pathlib import Path
 
 import numpy as np
 
@@ -27,13 +34,21 @@ STD = np.array([0.229, 0.224, 0.225], np.float32)
 MENU_COPY = re.compile(r'"([A-Z_]+) = [^"]*"')  # zero-shot the base model may copy "KEEP = hold current speed"
 
 
-def rgb_448(image) -> np.ndarray:
-    """PIL image or BGR array -> 448x448x3 uint8 RGB (what the PC sends, protocol VLM2)."""
+def rgb_resized(image, size: tuple[int, int]) -> np.ndarray:
+    """PIL image or BGR array -> uint8 RGB [h, w, 3] at size (w, h), PIL bicubic (what the PC sends)."""
     from PIL import Image
 
     if isinstance(image, np.ndarray):
         image = Image.fromarray(image[:, :, ::-1])
-    return np.asarray(image.convert("RGB").resize((448, 448), Image.BICUBIC), np.uint8)
+    image = image.convert("RGB")
+    if image.size != tuple(size):
+        image = image.resize(tuple(size), Image.BICUBIC)
+    return np.asarray(image, np.uint8)
+
+
+def rgb_448(image) -> np.ndarray:
+    """PIL image or BGR array -> 448x448x3 uint8 RGB (InternVL, protocol VLM2)."""
+    return rgb_resized(image, (448, 448))
 
 
 def pixel_values(image) -> bytes:
@@ -43,7 +58,12 @@ def pixel_values(image) -> bytes:
 
 
 def split_prompt(text: str) -> tuple[str, str]:
-    """Chat-template text with one image placeholder -> (text up to <img>, text from </img>)."""
+    """Chat-template text with one image placeholder -> (text up to <img>, text from </img>) for InternVL, or
+    (text up to <|vision_start|>, text from <|vision_end|>) for Qwen2.5-VL."""
+    qwen = "<|vision_start|><|image_pad|><|vision_end|>"
+    if qwen in text:
+        i = text.index(qwen)
+        return text[:i] + "<|vision_start|>", text[i + len(qwen) - len("<|vision_end|>"):]
     i = text.index("<IMG_CONTEXT>")
     return text[:i] + "<img>", "</img>" + text[i + len("<IMG_CONTEXT>"):]
 
@@ -53,14 +73,26 @@ class BoardVLM:
         from transformers import AutoProcessor
 
         self.cfg = cfg
-        self.processor = AutoProcessor.from_pretrained(resolve_model(cfg.board_processor))
+        path = resolve_model(cfg.board_processor)
+        self.processor = AutoProcessor.from_pretrained(path)
+        model_type = json.loads((Path(path) / "config.json").read_text()).get("model_type", "")
+        self.qwen = model_type.startswith("qwen2")
+        self.size = tuple(cfg.image_size or (560, 308)) if self.qwen else (448, 448)
         self._lock = threading.Lock()
         self._sock: socket.socket | None = None
         self.last_timing: dict[str, float] = {}
 
-    def _connect(self) -> socket.socket:
-        if self._sock is None:
-            self._sock = socket.create_connection((self.cfg.board_host, self.cfg.board_port), timeout=60)
+    def _connect(self, wait_s: float = 30.0) -> socket.socket:
+        """Connect to the server; while it is still loading (connection refused) retry for up to wait_s."""
+        deadline = time.monotonic() + wait_s
+        while self._sock is None:
+            try:
+                self._sock = socket.create_connection((self.cfg.board_host, self.cfg.board_port), timeout=60)
+            except ConnectionRefusedError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1.0)
+                continue
             self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         return self._sock
 
@@ -75,7 +107,8 @@ class BoardVLM:
 
     def generate(self, image, before: str, after: str, max_new_tokens: int) -> str:
         blob = lambda b: struct.pack("<I", len(b)) + b  # noqa: E731
-        req = (b"VLM2" + blob(before.encode()) + blob(after.encode()) + blob(rgb_448(image).tobytes())
+        magic = b"VLM3" if self.qwen else b"VLM2"
+        req = (magic + blob(before.encode()) + blob(after.encode()) + blob(rgb_resized(image, self.size).tobytes())
                + struct.pack("<I", max_new_tokens))
         with self._lock:
             try:
@@ -96,7 +129,7 @@ class BoardVLM:
                max_speed_kmh: float = 130.0, prev_image=None) -> tuple[DrivingDecision | None, str, float]:
         from PIL import Image
 
-        msgs = decision_messages(Image.new("RGB", (448, 448)), context_text, ego_speed_kmh, cruise_speed_kmh,
+        msgs = decision_messages(Image.new("RGB", self.size), context_text, ego_speed_kmh, cruise_speed_kmh,
                                  self.cfg.language)
         thinking = ""
         if self.cfg.thinking:

@@ -142,8 +142,9 @@ class VLMConfig:
     # sync: deterministic, for offline video | async: background thread | process: separate process (live camera;
     # a thread holds the GIL while it waits for the GPU and stalls perception)
     mode: str = "sync"
-    # local: model_id on this PC | board: InternVL3.5-2B on the SA8650P (board/vlm_genie_server.cpp, start it with
-    # board/vlm_server.sh start); board_processor = the -HF checkpoint folder, read for its chat template only
+    # local: model_id on this PC | board: a Genie VLM on the SA8650P (board/vlm_genie_server.cpp, start it with
+    # board/vlm_server.sh start): InternVL3.5-2B, or adas-vlm-v3 with board_processor=models/adas-vlm-v3 (Qwen2.5-VL,
+    # server MODEL=v3); board_processor = the checkpoint folder, read for its chat template / model type only
     backend: str = "local"
     board_host: str = "192.168.0.73"
     board_port: int = 50053

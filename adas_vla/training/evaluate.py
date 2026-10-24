@@ -53,18 +53,20 @@ def gate_offline(cfg: Config, rec: dict, decision: DrivingDecision) -> DrivingDe
 
 
 def select_records(path: str, split: str | None = None, reviewed_only: bool = False,
-                   limit: int | None = None) -> list[dict]:
+                   limit: int | None = None, offset: int = 0) -> list[dict]:
     records = load_records(path)
     if split:
         records = [r for r in records if r.get("split", "train") == split]
     if reviewed_only:
         records = [r for r in records if r.get("reviewed")]
+    records = records[offset:]
     return records[:limit] if limit else records
 
 
 def evaluate(cfg: Config, data: str, limit: int | None = None, report_path: str | None = None,
-             split: str | None = None, reviewed_only: bool = False, vlm: VisionLanguageModel | None = None) -> dict:
-    records = select_records(data, split, reviewed_only, limit)
+             split: str | None = None, reviewed_only: bool = False, vlm: VisionLanguageModel | None = None,
+             offset: int = 0) -> dict:
+    records = select_records(data, split, reviewed_only, limit, offset)
     if not records:
         raise SystemExit(f"No records in {data} (split={split}, reviewed_only={reviewed_only})")
     vlm = vlm or VisionLanguageModel(cfg.vlm)

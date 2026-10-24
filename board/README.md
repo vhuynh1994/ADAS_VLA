@@ -151,6 +151,45 @@ DLBC không có lợi trên SA8650P: cũng thử trên YOLOP lane (4.19 → 4.17
 W8A8 nhanh gấp 5.8 lần nhưng activation 8 bit phá hỏng ViT (outlier): hướng tiếp theo là mixed precision (A8 cho phần
 lớn, 16 bit cho tensor nhạy cảm, phân tích SQNR từng lớp như với YOLO11s).
 
+## adas-vlm-v3 (Qwen2.5-VL-3B fine-tune) tự build bằng QAIRT (23/10/2026)
+
+Model quyết định tốt nhất của project, trước đây chỉ chạy trên GPU của PC, nay được build từ đầu bằng QAIRT 2.46 (không qua
+AI Hub: AI Hub không có Qwen2.5-VL-3B, và recipe của nó cần GPU khoảng 40 GB). Quy trình và lệnh: `scripts/v3_qnn.py`,
+`scripts/v3_qnn_build.sh`, chi tiết trong `CLAUDE.md`. Binary build cho **SA8650P (HTP v73, soc 52)** và **SA8797P (HTP v81,
+soc 72)**, chạy và đo trên SA8650P (chưa có board SA8797P).
+
+| Thành phần | Dạng trên HTP | SA8650P / SA8797P |
+|---|---|---|
+| ViT 32 block + merger, ảnh 560×308 → 880 patch → 220 token | W8A16 theo kênh, residual xoay trực giao 1280 | 658 / 660 MiB |
+| LLM 36 layer chia 4 phần, mỗi phần 2 graph AR128 + AR1 (cl 1024) dùng chung trọng số | **GPTQ W4** theo kênh + A16, KV 8 bit, residual xoay Hadamard | 3 × 344 + 647 MiB (LM head 8 bit ở phần 4) |
+| Embedding | LUT float32 trên CPU (`embed_tokens · R`) | 1.24 GB RAM |
+
+Ba chỗ phải sửa so với cách làm của bundle InternVL, mỗi chỗ được đo trước khi chọn:
+
+| Vấn đề | Đo được | Cách sửa |
+|---|---|---|
+| Mask attention −100 không đủ | logits lệch 0.87 so với transformers (layer 27: logit token "tương lai" cao hơn max hợp lệ +391) | mask −1000 (encoding [−1000, 0]) |
+| W4 làm tròn (RTN) phá quyết định | trùng float 48 % (LPBQ-64 RTN 56 %), KV 8 bit một mình 98 % | GPTQ W4 theo kênh: trùng float 98 % |
+| Residual ViT có outlier 2.8·10⁴ | ViT W8A16 SQNR 12.8 dB | xoay residual ViT: 20.4 dB (ViT bf16 của PC chỉ 15.2 dB so với fp32) |
+
+Kỳ vọng độ chính xác (mô phỏng trên PC, 900 mẫu val, chưa tính activation 16 bit và ViT 8 bit):
+
+| 900 mẫu val | joint | under-braking | cùng quyết định với float |
+|---|---|---|---|
+| v3 float (bf16, dạng triển khai, greedy như Genie) | 77.3 % | 10.8 % | – |
+| v3 W4 GPTQ + KV 8 bit (cấu hình board) | 76.1 % | 9.8 % | 96.1 % |
+| v3 nf4 trên PC (`adas-vla eval`, cách chạy cũ) | 72.6–73.1 % | 8.8–9.1 % | 87–89 % |
+| v3 float nhưng ViT float32 thay vì bf16 | 76.9 % | 10.8 % | 98.8 % (ViT bf16 chỉ 15 dB so với float32 mà vẫn ít ảnh hưởng) |
+
+Chạy trên board (Genie, ViT NSP0 + LLM NSP1, server `vlm_genie_server --qwen 308x560`, giao thức VLM3):
+
+```bash
+MODEL=v3 bash board/vlm_server.sh deploy     # copy data/qnn_v3/bundle/sa8650 vào /data/adas_vla_genie/adas_vlm_v3
+MODEL=v3 bash board/vlm_server.sh start
+.venv/bin/python scripts/v3_qnn.py eval-board # 900 mẫu val, metric như adas-vla eval + thời gian từng mẫu
+MODEL=v3 bash board/vlm_server.sh stop
+```
+
 ## Giao thức
 
 Xem đầu file `vla_stream_server.cpp` ("VLASTREAM 1"). `third_party/stb_image.h` = stb_image v2.30 (public domain /
