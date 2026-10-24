@@ -23,11 +23,14 @@ perception:
   cut_in_rate: 0.25          # adjacent vehicle closing the gap to our corridor faster than this (corridor widths/s)
   cut_in_max_distance_m: 30.0  # ... and nearer than this is reported as CUTTING IN (and treated as the lead)
   cut_in_max_pull_away_mps: 1.0  # ... unless it is pulling away from us faster than this (overtaking, not a threat)
+  cut_in_oncoming_outer: 0.5   # parked / crossing / oncoming vehicle: cut-in only if its far box edge approaches too
+  cut_in_outer_from_mps: -3.0  # ... = closing faster than ego speed + this (vehicles driving with us are excluded)
   velocity_window_s: 0.5      # closing speed = distance slope over this window (TTC noise vs lag)
   corridor_half_width_m: 1.2  # vehicles are in our path only within +-1.2 m of the camera axis (flat-road
                              # geometry), not anywhere between wide / misdetected lane lines; null = lane corridor
   exclude_oncoming: true     # vehicles closing faster than we drive are not the lead unless cutting in or head-on
   oncoming_head_on_m: 0.5    # ... (box within this distance of our axis)
+  oncoming_head_on_max_m: 30.0  # ... and nearer than this (farther, a curve puts oncoming traffic on our axis)
   backend: local             # local | board: detector + lane model on the SA8650P HTP (board/README.md)
   board_host: 192.168.0.73
   board_port: 50052

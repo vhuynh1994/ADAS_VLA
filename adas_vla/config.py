@@ -92,6 +92,12 @@ class PerceptionConfig:
     cut_in_rate: float = 0.25
     cut_in_max_distance_m: float = 30.0
     cut_in_max_pull_away_mps: float = 1.0  # a vehicle moving away from us faster than this is not a cut-in threat
+    # A vehicle not driving along with us (closing faster than ego speed + cut_in_outer_from_mps: parked, crossing,
+    # oncoming) only counts as cutting in when the far edge of its box also comes toward the corridor at >= this
+    # fraction of cut_in_rate: approaching on its own side or parked, its near edge grows into our corridor with the
+    # side face that comes into view (false AEB on a left-hand-traffic road). None: off.
+    cut_in_oncoming_outer: float | None = 0.5
+    cut_in_outer_from_mps: float = -3.0
     velocity_window_s: float = 0.5  # closing speed = least-squares distance slope over this window
     # In-path test for vehicles against the ego corridor capped to +-this many metres around the camera axis
     # (flat-road geometry, horizon from the lane vanishing point or camera.horizon_frac); null = the lane (or
@@ -101,6 +107,7 @@ class PerceptionConfig:
     # head-on: box within oncoming_head_on_m of the camera axis.
     exclude_oncoming: bool = True
     oncoming_head_on_m: float = 0.5
+    oncoming_head_on_max_m: float | None = 30.0  # farther, a curve puts the oncoming lane in front of our axis
     # local: models on this PC | board: detector + lane model on the SA8650P HTP via board/vla_stream_server
     # (start it with board/board_server.sh start); tracking, lane fitting, geometry and the gate stay here
     backend: str = "local"

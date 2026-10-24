@@ -154,6 +154,7 @@ def test_ego_hood_is_not_a_vehicle():
     # Australian dashcam: hood + dashboard + road seen as one full-width 'car' (phantom AEB at "2 m")
     assert is_ego_hood((0, 263, 1280, 700), 1280, 720)
     assert not is_ego_hood((40, 200, 1240, 500), 1280, 720)  # bus crossing ahead: wide, but on the road
+    assert is_ego_hood((19, 1052, 3433, 2133), 3840, 2160)  # UK dashcam: dashboard, 89 % wide, top at 0.49 H
 
 
 def test_object_on_dashboard_is_not_close():

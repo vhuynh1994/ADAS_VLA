@@ -285,6 +285,21 @@ first-token `ActionPolicy` carry over; only the fine-tune is redone.
   cut-in only if the predicted lateral position at TTC is inside the corridor (lateral speed in metres, outer box
   edge - class width for the inner edge), plausibility cap of the closing speed with the CAN ego speed.
 
+- 2026-10-24, UK dashcam `241220_130801_007_FH` (left-hand traffic; the OSD shows 25 MPH, run it with ego 40 km/h):
+  9 of 10 false AEB onsets of the board demo were oncoming cars on our right flagged CUTTING IN - the near box edge
+  grows toward us with the side face, and on curves the straight lane fits make a car that keeps its lane drift toward
+  the corridor, far edge included. Fixes (`perception.cut_in_oncoming_outer` 0.5 / `cut_in_outer_from_mps` -3 /
+  `oncoming_head_on_max_m` 30): a vehicle not driving along with us (closing > ego - 3 m/s: parked, crossing, oncoming)
+  only cuts in when its far edge also approaches (>= half the cut-in rate, not when clipped by the image border) and
+  its near edge is already inside our lane; the head-on exception for oncoming vehicles only within 30 m (farther, a
+  curve puts the oncoming lane on our axis). `is_ego_hood` full-width test 0.9 -> 0.85 W (the low UK dashcam's
+  dashboard, 88 % wide with its top at 0.49 H, was a "car at 2 m"). Replay (capture with `--video path:60`): UK AEB
+  9.7-10.0 -> 1.3 onsets/min, 11.6-12.0 -> 1.3 % of the time, FCW+AEB 36 -> 22 % (17 % at ego 40). 136-clip set
+  unchanged where it matters: Nexar AEB in hazard windows 31.5 %, AU brake response 88.2 %; normal-driving AEB 5.03 ->
+  4.36 % (2.79 -> 2.29 /min), control AEB 9.0 -> 7.2 %; Nexar warn 91.9 -> 91.0 % = one clip (nexar_00321) whose
+  FCW starts 0.9 s before the labelled alert in both runs and now ends one frame before the window. Left: oncoming cars
+  passing within ~10 m whose box really overlaps a narrow lane (3 onsets in 3 min).
+
 ## VLM on the SA8650P board: InternVL3.5-2B via Genie (2026-10-13)
 - Qualcomm AI Hub (`~/workspaces/aihub/.venv`, token in `~/.qai_hub/client.ini`, never in the repo) ships prebuilt Genie
   W4A16 bundles for SA8775P (= HTP v73 / soc 52, loads on the SA8650P with QAIRT 2.46). Qwen2.5-VL-3B is not on AI

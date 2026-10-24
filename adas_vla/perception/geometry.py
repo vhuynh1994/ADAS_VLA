@@ -131,6 +131,8 @@ class _Track:
     hist: deque = field(default_factory=deque)  # (t, measured distance) within the velocity window
     gaps: deque = field(default_factory=deque)  # (t, lateral gap to the ego corridor in corridor widths)
     cutting_in: bool = False
+    outer: deque = field(default_factory=deque)  # (t, gap of the box's far edge, None when clipped by the image)
+    outer_rate: float | None = None  # its rate over the cut-in window (corridor widths per second)
 
 
 def _fit_slope(samples: deque) -> tuple[float, float]:
@@ -173,7 +175,12 @@ class MotionEstimator:
     `oncoming_margin_mps` drives toward us; it is not the lead unless it is cutting in (crossing or turning into
     our path) or its box reaches within `oncoming_head_on_m` of the camera axis (coming at us head-on) - on curves
     and wide roads the oncoming lane otherwise lies inside the corridor. The cap applies to vehicles only, and
-    cut-in is still measured against the lane corridor.
+    cut-in is still measured against the lane corridor. With `cut_in_oncoming_outer`, a vehicle that does not drive
+    along with us (closing faster than the ego speed + `cut_in_outer_from_mps`: parked, crossing or oncoming) only
+    counts as cutting in when the far edge of its box comes toward the corridor too (at that fraction of
+    `cut_in_rate`; never when the image border clips it): approaching on its own side or parked by the road, its near
+    edge grows toward us with the side face that comes into view, which fired AEB at oncoming and parked cars of a
+    left-hand-traffic (UK) dashcam video. Vehicles driving with us (merging) keep the near-edge test.
 
     Depth (optional, `depth` config + a `DepthFrame` per update, see perception/depth.py): the per-box value of a
     depth network replaces (`mode: replace`) or caps (`mode: min`) the pinhole distance once the map's scale and
@@ -187,7 +194,9 @@ class MotionEstimator:
                  cut_in_rate: float = 0.25, cut_in_max_distance_m: float = 30.0, cut_in_window_s: float = 0.6,
                  cut_in_max_pull_away_mps: float = 1.0, depth: DepthConfig | None = None,
                  corridor_half_width_m: float | None = None, exclude_oncoming: bool = False,
-                 oncoming_head_on_m: float = 0.5, horizon_tau_s: float = 1.0):
+                 oncoming_head_on_m: float = 0.5, horizon_tau_s: float = 1.0,
+                 cut_in_oncoming_outer: float | None = None, cut_in_outer_from_mps: float = -3.0,
+                 oncoming_head_on_max_m: float | None = None):
         from .depth import DepthAligner
 
         self.camera = camera
@@ -207,6 +216,9 @@ class MotionEstimator:
         self.corridor_half_width_m = corridor_half_width_m
         self.exclude_oncoming = exclude_oncoming
         self.oncoming_head_on_m = oncoming_head_on_m
+        self.cut_in_oncoming_outer = cut_in_oncoming_outer
+        self.cut_in_outer_from_mps = cut_in_outer_from_mps
+        self.oncoming_head_on_max_m = oncoming_head_on_max_m
         self.horizon_tau_s = horizon_tau_s
         self._horizon: tuple[float, float] | None = None  # (t, smoothed horizon as a fraction of the height)
         self.horizon_y: float | None = None  # horizon row (px) of the last update(), used by the BEV view
@@ -219,7 +231,9 @@ class MotionEstimator:
         return cls(cfg.camera, cut_in_rate=p.cut_in_rate, cut_in_max_distance_m=p.cut_in_max_distance_m,
                    cut_in_max_pull_away_mps=p.cut_in_max_pull_away_mps, vel_window_s=p.velocity_window_s,
                    depth=p.depth, corridor_half_width_m=p.corridor_half_width_m,
-                   exclude_oncoming=p.exclude_oncoming, oncoming_head_on_m=p.oncoming_head_on_m)
+                   exclude_oncoming=p.exclude_oncoming, oncoming_head_on_m=p.oncoming_head_on_m,
+                   cut_in_oncoming_outer=p.cut_in_oncoming_outer, cut_in_outer_from_mps=p.cut_in_outer_from_mps,
+                   oncoming_head_on_max_m=p.oncoming_head_on_max_m)
 
     def reset(self) -> None:
         self._tracks.clear()
@@ -276,16 +290,33 @@ class MotionEstimator:
             cx = (x1 + x2) / 2
             det.position = "front-left" if cx < left else "front-right" if cx > right else "ahead"
             # Signed gap between the box and the lane corridor: > 0 outside, < 0 overlapping (in corridor widths).
-            gap = ((lane_left - x2 if cx < (lane_left + lane_right) / 2 else x1 - lane_right)
-                   / max(lane_right - lane_left, 1.0))
-            self._update_track(det, t, gap)
+            on_left, cw = cx < (lane_left + lane_right) / 2, max(lane_right - lane_left, 1.0)
+            gap = (lane_left - x2 if on_left else x1 - lane_right) / cw
+            # ... and of the box's far edge (None when the image border clips it): it follows a vehicle that moves
+            # sideways, but not the side face that grows on the near edge as an oncoming vehicle approaches
+            clipped = x1 <= 1 if on_left else x2 >= width - 2
+            outer = None if clipped else (lane_left - x1 if on_left else x2 - lane_right) / cw
+            self._update_track(det, t, gap, outer)
             # Closing faster than we drive means the object itself moves toward us (oncoming traffic).
             if ego_speed_mps is not None and det.closing_speed_mps is not None and det.track_id is not None:
                 det.oncoming = det.closing_speed_mps > ego_speed_mps + self.oncoming_margin_mps
+            not_following = (ego_speed_mps is not None and det.closing_speed_mps is not None
+                             and det.closing_speed_mps > ego_speed_mps + self.cut_in_outer_from_mps)
+            if not_following and det.cutting_in and self.cut_in_oncoming_outer is not None:
+                # a parked, crossing or oncoming vehicle only cuts in when its far edge comes toward us too, and once
+                # its near edge is inside our lane (on curves the straight lane fits make vehicles that keep to their
+                # own lane drift toward the corridor, far edge included)
+                tr = self._tracks.get(det.track_id)
+                rate = tr.outer_rate if tr is not None else None
+                if rate is None or rate > -self.cut_in_oncoming_outer * self.cut_in_rate or gap > 0:
+                    det.cutting_in = False
             if self.exclude_oncoming and det.oncoming and not det.cutting_in:
-                # a crossing or turning vehicle closes faster than we drive too: only its lateral position tells
+                # a crossing or turning vehicle closes faster than we drive too: only its lateral position tells;
+                # beyond oncoming_head_on_max_m a curve puts the oncoming lane in front of the camera axis
                 lo, hi = (lateral_offset_m(x, y2, width, height, horizon_y, cam_h) for x in (x1, x2))
-                if min(abs(lo), abs(hi)) > self.oncoming_head_on_m and not lo <= 0 <= hi:
+                near_axis = min(abs(lo), abs(hi)) <= self.oncoming_head_on_m or lo <= 0 <= hi
+                close = self.oncoming_head_on_max_m is None or (det.distance_m or 0.0) <= self.oncoming_head_on_max_m
+                if not (near_axis and close):
                     det.in_ego_path = False
 
         stale = [tid for tid, tr in self._tracks.items() if t - tr.t > self.max_track_age_s]
@@ -324,13 +355,13 @@ class MotionEstimator:
             out.append(max(d, 1.0))
         return out
 
-    def _update_track(self, det: Detection, t: float, gap: float) -> None:
+    def _update_track(self, det: Detection, t: float, gap: float, outer: float | None = None) -> None:
         if det.track_id is None or det.distance_m is None:
             return
         prev = self._tracks.get(det.track_id)
         if prev is None:
             self._tracks[det.track_id] = _Track(t=t, dist=det.distance_m, hist=deque([(t, det.distance_m)]),
-                                                gaps=deque([(t, gap)]))
+                                                gaps=deque([(t, gap)]), outer=deque([(t, outer)]))
             return
         dt = t - prev.t
         if dt <= 0:
@@ -360,8 +391,15 @@ class MotionEstimator:
                           and dist <= self.cut_in_max_distance_m
                           and (vel is None or vel >= -self.cut_in_max_pull_away_mps))
         det.cutting_in = cutting_in and not det.in_ego_path
+        outers = prev.outer
+        outers.append((t, outer))
+        while len(outers) > 1 and t - outers[1][0] >= self.cut_in_window_s:
+            outers.popleft()
+        (t_o, o_old), outer_rate = outers[0], None
+        if outer is not None and o_old is not None and t - t_o >= self.cut_in_window_s / 2:
+            outer_rate = (outer - o_old) / (t - t_o)
         self._tracks[det.track_id] = _Track(t=t, dist=dist, vel=vel, hist=hist, gaps=gaps,
-                                            cutting_in=det.cutting_in)
+                                            cutting_in=det.cutting_in, outer=outers, outer_rate=outer_rate)
 
         det.distance_m = dist
         det.closing_speed_mps = vel

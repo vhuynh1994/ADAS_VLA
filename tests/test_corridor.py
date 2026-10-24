@@ -78,6 +78,30 @@ def test_oncoming_car_turning_across_our_path_stays_a_threat():
     assert det.oncoming and det.cutting_in
 
 
+def test_oncoming_car_whose_side_face_grows_is_not_cutting_in():
+    """Approaching on its own side (left-hand traffic: on our right), an oncoming car's near box edge grows toward
+    our corridor as its side face comes into view while its far edge holds: no cut-in, so not the lead (the false
+    AEB of the UK dashcam video). With cut_in_oncoming_outer off it was flagged and stayed in the path."""
+    def run(outer):
+        est = MotionEstimator(Config().camera, dist_tau_s=0.0, exclude_oncoming=True, cut_in_oncoming_outer=outer)
+        f = focal_length_px(W, Config().camera.hfov_deg)
+        det = None
+        for i, dist in enumerate([30.0, 27.0, 24.0, 21.0]):
+            det = Detection("car", 0.9, (1000 - 40 * i, 600 - f * 1.5 / dist, 1100, 600), track_id=3)
+            est.update([det], i * 0.1, LaneInfo(image_width=W), W, H, 60 / 3.6)
+        return det
+
+    assert run(None).cutting_in
+    det = run(0.5)
+    assert det.oncoming and not det.cutting_in and not det.in_ego_path
+
+
+def test_oncoming_car_turning_across_stays_a_threat_with_the_far_edge_check():
+    est = MotionEstimator(Config().camera, dist_tau_s=0.0, exclude_oncoming=True, cut_in_oncoming_outer=0.5)
+    det = _approach(est, 1000, 1100, [30.0, 27.0, 24.0, 21.0], y2=600, lanes=LaneInfo(image_width=W), dx=40)
+    assert det.oncoming and det.cutting_in  # the whole box moves toward our path
+
+
 def test_defaults_enable_the_metric_corridor_and_oncoming_exclusion():
     est = MotionEstimator.from_config(load_config())
-    assert est.corridor_half_width_m == 1.2 and est.exclude_oncoming
+    assert est.corridor_half_width_m == 1.2 and est.exclude_oncoming and est.cut_in_oncoming_outer == 0.5
