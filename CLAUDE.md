@@ -414,6 +414,34 @@ No SA8797P board exists: binaries are built for both SoCs (QAIRT 2.46 has hexago
   The server's node pipeline adds ~12 ms per token (92 ms). Levers: fewer generated tokens (the action is token 1),
   4-bit LM head, the server overhead, speculative decoding of the JSON.
 
+## Round 7 (2026-10-24): v3 + explanations after the decision - coded and QA'd, NOT run yet
+- Owner's request: v3's reasons are too short and simple (43 template sentences, mean 7 words). Owner's plan: a teacher
+  explains the train frames, v3 is fine-tuned to answer the decision first and scene / hazards / reason after it.
+- Format `vlm.explain` (default false; the default prompt stays byte-identical to v3's): JSON keys longitudinal,
+  lateral, target_speed_kmh, risk, scene (<= 15 words), hazards (<= 15), reason (<= 20). The action is still the first
+  generated token; decision-only decoding stops at `"scene"` (v3's latency). Parser, DrivingDecision, HUD, the board
+  client and the HTP simulator take it too.
+- `scripts/explain_labels.py`: the teacher (Qwen2.5-VL-7B 4-bit, `configs/teacher_7b.yaml`) sees the image, the
+  perception list and the label's decision and cause. Every answer is checked: each quoted distance must be an object of
+  the perception list at the stated position (+-1 m; a road user "cutting into our lane" may be "in front", but not one
+  already ahead in our lane beyond 30 m), km/h figures must be ego / cruise / target / perception speeds, traffic-light
+  colours as detected, no "no traffic" next to listed vehicles, no "lane is clear" next to an object ahead, the object
+  the cause names must appear, no prompt words ("medium-risk condition"), no contradiction of the action (negations
+  allowed). Over-long fields are cut at a sentence / clause end; a rejected answer gets one retry told why. The generic
+  cause "Hazard entering our path" (1189 of 3562 non-KEEP train labels, Nexar) gets a hint: the road user marked CUTTING
+  IN or with the shortest TTC, else the nearest one in or next to our lane.
+- QA, 62 frames (40 train, 10 val, 12 generic-cause; ~20 checked against the image), 3 rounds: 94 % accepted, 16 % via
+  the retry, 2.45 s/frame. Caught now: "no traffic" with brake lights in view, a front-left distance quoted as "ahead",
+  oncoming cars copied as IN EGO LANE next to "road is clear", braking blamed on a traffic light instead of the crossing
+  car. Residual ~1 in 10 partly wrong, mostly generic-cause Nexar frames (e.g. a person on the median named as the
+  hazard next to a car at TTC 0.6 s). QA outputs: `data/ds_v3/labels.explanations.{qa1,qa3,smoke1}.jsonl`.
+- Training (`finetune.example_loss`): explained answers use mean(decision tokens) + mean(explanation tokens); a plain
+  mean weighs the ~70 explanation tokens ~10:1 against the informative decision tokens. Smoke: 1.65 s/sample, 3.2 GB.
+- `scripts/pipeline_v6.sh [labels|train|all]` (TAG v6, resumable, STOP_AT 07:30; the owner starts it): labels for 300
+  val + 7962 train frames (every non-KEEP + 4400 KEEP, ~6 h) -> gate (complete, >= 85 % accepted, no action < 70 %) ->
+  `data/ds_v3x` -> train from v3 (1 epoch, lr 1e-4, ~3.6 h) -> `models/adas-vlm-v6` -> decision-only eval val / Nexar
+  vs v3, explanations of the 300 held-out val frames vs the teacher (`explain_labels.py score`), sweep, reports, demo.
+
 ## Suggested next steps (owner decides priority)
 1. Train and evaluate the 2-frame model (v4) as above — biggest expected gain on KEEP↔DECELERATE.
 2. Perception for very close / cut-in vehicles beyond the geometric fixes: bigger detector, fine-tune for the domain.
