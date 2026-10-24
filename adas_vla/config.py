@@ -134,6 +134,9 @@ class VLMConfig:
     image_max_side: int = 640
     max_new_tokens: int = 64
     generate_reason: bool = False  # False: stop after the decision fields (latency); True: also the reason text
+    # True for a VLM fine-tuned on explained targets (scripts/explain_labels.py): the prompt asks for scene, hazards
+    # and a longer reason after the decision fields; decision-only decoding then stops before "scene"
+    explain: bool = False
     # > 0: feed the frame this many seconds earlier together with the current one as a 2-frame video. Qwen2.5-VL
     # packs 2 frames into one temporal patch, so this costs no extra visual tokens; 0.5 s matches its default
     # 2 fps video sampling. 0 = single image. Needs a model fine-tuned with the same setting.

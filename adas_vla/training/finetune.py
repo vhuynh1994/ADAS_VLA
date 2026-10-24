@@ -113,7 +113,7 @@ def sample_weight(rec: dict, brake_weight: float) -> float:
 def build_example(processor, rec: dict, cfg: Config) -> dict:
     """Tokenize one sample; loss is computed on the assistant answer only."""
     prompt = decision_messages(sample_visual(rec, cfg), rec["context"], rec["ego_speed_kmh"],
-                               rec["cruise_speed_kmh"], cfg.vlm.language)
+                               rec["cruise_speed_kmh"], cfg.vlm.language, cfg.vlm.explain)
     full = prompt + [{"role": "assistant", "content": [{"type": "text", "text": target_json(rec["target"])}]}]
     enc_full = encode_messages(processor, full, add_generation_prompt=False)
     enc_prompt = encode_messages(processor, prompt, add_generation_prompt=True)
@@ -123,7 +123,34 @@ def build_example(processor, rec: dict, cfg: Config) -> dict:
     labels = enc_full["input_ids"].clone()
     labels[:, :n_prompt] = -100
     enc_full["labels"] = labels
-    return dict(enc_full)
+    example = dict(enc_full)
+    if rec["target"].get("scene"):  # explained answer: where the explanation starts (see example_loss)
+        example["decision_end"] = explanation_start(processor.tokenizer.decode, enc_full["input_ids"][0].tolist(),
+                                                    n_prompt)
+    return example
+
+
+def explanation_start(decode, ids: list[int], n_prompt: int) -> int:
+    """Position of the first token after the '"scene"' key in an explained answer (the answer starts at n_prompt)."""
+    return next(i + 1 for i in range(n_prompt, len(ids)) if '"scene"' in decode(ids[n_prompt:i + 1]))
+
+
+def example_loss(model, example: dict, device):
+    """Mean cross-entropy over the answer tokens; for an explained answer (vlm.explain) the mean over the decision
+    tokens + the mean over the explanation tokens. A plain mean would weigh the ~70 explanation tokens against the
+    handful of informative decision tokens (action, lateral, speed, risk) about 10:1: while the new text is learnt,
+    a drift of the decision would hardly be pulled back."""
+    import torch.nn.functional as F
+
+    end = example.get("decision_end")
+    inputs = _to_device({k: v for k, v in example.items() if k != "decision_end"}, device)
+    if end is None:
+        return model(**inputs).loss
+    labels = inputs.pop("labels")[0, 1:]  # logits[t] predicts token t + 1
+    keep = labels != -100
+    ce = F.cross_entropy(model(**inputs).logits[0, :-1][keep].float(), labels[keep], reduction="none")
+    decision = (keep.nonzero()[:, 0] + 1) < end
+    return ce[decision].mean() + ce[~decision].mean()
 
 
 def build_optimizer(params, name: str, lr: float):
@@ -175,7 +202,7 @@ def _micro_step(model, example: dict, device, weight: float, grad_accum: int) ->
     import torch
 
     try:
-        loss = model(**_to_device(example, device)).loss * weight / grad_accum
+        loss = example_loss(model, example, device) * weight / grad_accum
         loss.backward()
         return loss.item()
     except torch.OutOfMemoryError:
@@ -408,6 +435,6 @@ def _val_loss(model, processor, records, cfg, device) -> float:
     total = 0.0
     with torch.no_grad():
         for rec in records:
-            total += model(**_to_device(build_example(processor, rec, cfg), device)).loss.item()
+            total += example_loss(model, build_example(processor, rec, cfg), device).item()
     model.train()
     return total / max(1, len(records))

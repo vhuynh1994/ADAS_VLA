@@ -129,5 +129,6 @@ def parse_decision(text: str, ego_speed_kmh: float, max_speed_kmh: float = 130.0
 
     return DrivingDecision(
         longitudinal=long_a, lateral=lat_a, target_speed_kmh=speed, risk_level=risk,
-        reason=str(obj.get("reason", "")).strip(), source="vlm",
+        reason=str(obj.get("reason", "")).strip(), scene=str(obj.get("scene", "")).strip(),
+        hazards=str(obj.get("hazards", "")).strip(), source="vlm",
     )

@@ -130,7 +130,7 @@ class BoardVLM:
         from PIL import Image
 
         msgs = decision_messages(Image.new("RGB", self.size), context_text, ego_speed_kmh, cruise_speed_kmh,
-                                 self.cfg.language)
+                                 self.cfg.language, self.cfg.explain)
         thinking = ""
         if self.cfg.thinking:
             msgs = thinking_messages(msgs)

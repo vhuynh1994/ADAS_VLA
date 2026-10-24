@@ -20,6 +20,7 @@ import torch
 
 from ..reasoning.parser import parse_decision
 from ..reasoning.prompts import DECISION_PREFIX, decision_messages
+from ..reasoning.prompts import EXPLAIN_STOP
 from ..reasoning.vlm import LONG_ORDER, REASON_KEY, close_before_reason
 from . import qwen_vl as qv
 
@@ -87,11 +88,12 @@ class DeployVLM:
     def __init__(self, model_dir: str | Path, device: str = "cuda", dtype=torch.bfloat16, rotate: bool = False,
                  wbits: int | None = None, wblock: int | None = None, kv_bits: int | None = None,
                  max_new_tokens: int = 64, cl: int = 1024, ar: int = 128, rotate_heads: bool = False,
-                 gptq: str | Path | None = None, feature_cache: dict | None = None):
+                 gptq: str | Path | None = None, feature_cache: dict | None = None, explain: bool = False):
         from tokenizers import Tokenizer
         from transformers import AutoProcessor
 
         self.spec = spec = qv.Spec.from_model(model_dir)
+        self.explain = explain
         ck = qv.Checkpoint(model_dir)
         self.rotation = qv.hadamard(spec.dim) if rotate else None
         self.head_rotation = qv.hadamard(spec.head_dim, seed=1) if rotate_heads else None
@@ -120,7 +122,8 @@ class DeployVLM:
 
     def prompt(self, image, context_text: str, ego_speed_kmh: float, cruise_speed_kmh: float) -> tuple[list, list]:
         text = self.processor.apply_chat_template(
-            decision_messages(image, context_text, ego_speed_kmh, cruise_speed_kmh), tokenize=False,
+            decision_messages(image, context_text, ego_speed_kmh, cruise_speed_kmh, explain=self.explain),
+            tokenize=False,
             add_generation_prompt=True)
         before, after = split_prompt(text)
         enc = lambda s: self.tok.encode(s, add_special_tokens=False).ids  # noqa: E731
@@ -155,13 +158,14 @@ class DeployVLM:
         total = sum(raw_p.values()) or 1.0
         tokens = [int(logits.argmax())]
         text = self.tok.decode(tokens)
-        while len(tokens) < self.max_new_tokens and tokens[-1] not in self.spec.eos and REASON_KEY not in text:
+        stop = EXPLAIN_STOP if self.explain else REASON_KEY
+        while len(tokens) < self.max_new_tokens and tokens[-1] not in self.spec.eos and stop not in text:
             tokens.append(int(self.gen.decode(self.lut[tokens[-1]].to(self.device, self.dtype)).argmax()))
             text = self.tok.decode([t for t in tokens if t not in self.spec.eos])
         latency = time.perf_counter() - t0
         self.last_timing = {"vit_s": t_vit - t0, "first_token_s": t_first - t0, "total_s": latency,
                             "tokens": len(tokens), "prompt_tokens": len(embeds)}
-        raw = close_before_reason(DECISION_PREFIX + text)
+        raw = close_before_reason(DECISION_PREFIX + text, stop)
         decision = parse_decision(raw, ego_speed_kmh, max_speed_kmh)
         if decision is not None:
             decision.latency_s = latency

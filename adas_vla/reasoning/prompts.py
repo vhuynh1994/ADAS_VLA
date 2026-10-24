@@ -47,7 +47,11 @@ DECISION_USER_TEMPLATE = """Ego speed: {ego_speed:.0f} km/h. Cruise set speed: {
 
 longitudinal: {long_actions}
 lateral: {lat_actions}
-Return JSON: {{"longitudinal": ..., "lateral": ..., "target_speed_kmh": <int>, "risk": "low|medium|high", "reason": "<max 12 words>"}}{language_note}"""
+Return JSON: {{"longitudinal": ..., "lateral": ..., "target_speed_kmh": <int>, "risk": "low|medium|high", {explain}"reason": "{reason_len}"}}{language_note}"""
+# vlm.explain: the decision fields first (the action is still the first generated token), then a short scene
+# description and the hazards that matter (scripts/explain_labels.py writes such targets with a teacher VLM)
+EXPLAIN_FIELDS = '"scene": "<max 15 words>", "hazards": "<max 15 words>", '
+EXPLAIN_STOP = '"scene"'  # decision-only decoding of an explaining VLM stops here (the reason comes last)
 
 CHAT_SYSTEM_PROMPT = (
     "You are an in-car driving copilot. Answer the driver's questions about the current road "
@@ -81,12 +85,14 @@ def visual_content(image) -> dict:
 
 
 def decision_messages(image, context_text: str, ego_speed_kmh: float, cruise_speed_kmh: float,
-                      language: str = "en") -> list[dict]:
-    """Chat messages asking the VLM for a driving decision on one frame (or a [previous, current] pair)."""
+                      language: str = "en", explain: bool = False) -> list[dict]:
+    """Chat messages asking the VLM for a driving decision on one frame (or a [previous, current] pair);
+    `explain` asks for the longer answer (scene, hazards, reason) of an explaining VLM."""
     user_text = DECISION_USER_TEMPLATE.format(
         ego_speed=ego_speed_kmh, cruise_speed=cruise_speed_kmh, context=context_text,
         long_actions=_action_menu(LONG_ACTION_HELP), lat_actions=_action_menu(LAT_ACTION_HELP),
-        language_note=_language_note(language),
+        language_note=_language_note(language), explain=EXPLAIN_FIELDS if explain else "",
+        reason_len="<max 20 words>" if explain else "<max 12 words>",
     )
     return [
         {"role": "system", "content": [{"type": "text", "text": DECISION_SYSTEM_PROMPT}]},

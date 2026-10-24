@@ -287,3 +287,60 @@ def test_report_summary_has_intervals_and_gate_replay():
     lo, hi = m["joint_accuracy_ci95"]
     assert lo < m["joint_accuracy"] == 0.5 < hi
     assert summarize(rows[2:])["system_under_braking_rate"] is None  # nothing to replay
+
+
+def test_explaining_vlm_format():
+    """vlm.explain: decision fields first (the action stays the first generated token), then scene, hazards and
+    the reason; the default prompt and target are unchanged for the models trained without explanations."""
+    import json
+
+    from adas_vla.reasoning.parser import parse_decision
+    from adas_vla.reasoning.prompts import EXPLAIN_STOP, decision_messages
+    from adas_vla.reasoning.vlm import close_before_reason
+    from adas_vla.training.data import target_json
+
+    plain = decision_messages(None, "ctx", 50, 60)[1]["content"][1]["text"]
+    explain = decision_messages(None, "ctx", 50, 60, explain=True)[1]["content"][1]["text"]
+    assert '"scene"' not in plain and '"reason": "<max 12 words>"' in plain
+    assert '"risk": "low|medium|high", "scene": "<max 15 words>", "hazards": "<max 15 words>"' in explain
+    target = {"longitudinal": "BRAKE", "lateral": "KEEP_LANE", "target_speed_kmh": 0, "risk": "high",
+              "reason": "Pedestrian crossing ahead; brake.", "hazards": "person ahead, ~9 m", "scene": "urban road"}
+    out = target_json(target)
+    assert list(json.loads(out)) == ["longitudinal", "lateral", "target_speed_kmh", "risk", "scene", "hazards",
+                                     "reason"]
+    d = parse_decision(out, 30.0)
+    assert d.scene == "urban road" and d.hazards == "person ahead, ~9 m" and d.target_dict() == json.loads(out)
+    assert close_before_reason(out, EXPLAIN_STOP) == \
+        '{"longitudinal": "BRAKE", "lateral": "KEEP_LANE", "target_speed_kmh": 0, "risk": "high"}'
+
+
+def test_explained_answer_loss_weighs_the_decision_like_before():
+    """With an explanation the loss is mean(decision tokens) + mean(explanation tokens), so the ~70 new text tokens
+    do not drown the decision; answers without one keep the model's own mean."""
+    import torch
+    import torch.nn.functional as F
+
+    from adas_vla.training.finetune import example_loss, explanation_start
+
+    vocab = ["<p>", '{"longitudinal": "BRAKE", "risk": "high",', ' "', "scene", '":', ' "urban road"', "}"]
+    ids = list(range(len(vocab)))
+    assert explanation_start(lambda xs: "".join(vocab[i] for i in xs), ids, 1) == 5  # after '"scene":'
+
+    torch.manual_seed(0)
+    logits = torch.randn(1, 7, 7)
+
+    class Model:
+        def __call__(self, input_ids, labels=None):
+            out = type("Out", (), {})()
+            out.logits = logits
+            if labels is not None:
+                out.loss = F.cross_entropy(logits[0, :-1], labels[0, 1:], ignore_index=-100)
+            return out
+
+    labels = torch.tensor([[-100, 1, 2, 3, 4, 5, 6]])
+    example = {"input_ids": labels.clamp(min=0), "labels": labels}
+    ce = F.cross_entropy(logits[0, :-1], labels[0, 1:], reduction="none")  # ce[t] scores token t + 1
+    plain = example_loss(Model(), example, "cpu")
+    assert torch.isclose(plain, ce.mean())
+    split = example_loss(Model(), {**example, "decision_end": 5}, "cpu")
+    assert torch.isclose(split, ce[:4].mean() + ce[4:].mean())  # tokens 1-4 decision, 5-6 explanation

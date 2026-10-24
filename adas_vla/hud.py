@@ -99,6 +99,10 @@ class HUD:
         if vlm is not None:
             age = res.context.timestamp_s - vlm.timestamp_s
             lines.append(f"VLM ({vlm.latency_s:.1f}s, {age:.1f}s ago): {vlm.label}, {vlm.target_speed_kmh:.0f} km/h")
+            if getattr(vlm, "scene", ""):
+                lines.append("scene: " + vlm.scene)
+            if getattr(vlm, "hazards", ""):
+                lines.append("hazards: " + vlm.hazards)
             if vlm.reason:
                 lines.append("reason: " + vlm.reason)
             if vlm.thinking:  # thinking-mode demo: the last part of the reasoning (the conclusion)

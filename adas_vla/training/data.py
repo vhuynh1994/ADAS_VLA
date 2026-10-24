@@ -100,5 +100,5 @@ def sample_visual(rec: dict, cfg):
 
 def target_json(target: dict) -> str:
     """Canonical, compact serialization of the answer the VLM must learn to produce."""
-    keys = ["longitudinal", "lateral", "target_speed_kmh", "risk", "reason"]
+    keys = ["longitudinal", "lateral", "target_speed_kmh", "risk", "scene", "hazards", "reason"]
     return json.dumps({k: target[k] for k in keys if k in target}, ensure_ascii=False)

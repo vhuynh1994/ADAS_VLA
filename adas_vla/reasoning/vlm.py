@@ -12,8 +12,8 @@ from PIL import Image
 from ..config import VLMConfig, resolve_model
 from ..types import DrivingDecision, context_has_hazard_cue
 from .parser import parse_decision
-from .prompts import (DECISION_PREFIX, THINKING_PREFIX, chat_messages, decision_messages, split_thinking,
-                      thinking_messages)
+from .prompts import (DECISION_PREFIX, EXPLAIN_STOP, THINKING_PREFIX, chat_messages, decision_messages,
+                      split_thinking, thinking_messages)
 
 
 def to_pil(image, max_side: int, size: list[int] | None = None) -> Image.Image:
@@ -126,9 +126,9 @@ class _TailTextStop:
         return torch.full((input_ids.shape[0],), done, dtype=torch.bool, device=input_ids.device)
 
 
-def close_before_reason(raw: str) -> str:
-    """Turn '{..., "risk": "low", "reason"' into '{..., "risk": "low"}'."""
-    cut = raw.find(REASON_KEY)
+def close_before_reason(raw: str, key: str = REASON_KEY) -> str:
+    """Turn '{..., "risk": "low", "reason"' into '{..., "risk": "low"}' (or before another key)."""
+    cut = raw.find(key)
     if cut == -1:
         return raw
     return raw[:cut].rstrip().rstrip(",").rstrip() + "}"
@@ -236,7 +236,8 @@ class VisionLanguageModel:
             visual = [prev, now]
         else:
             visual = now
-        messages = decision_messages(visual, context_text, ego_speed_kmh, cruise_speed_kmh, self.cfg.language)
+        messages = decision_messages(visual, context_text, ego_speed_kmh, cruise_speed_kmh, self.cfg.language,
+                                     self.cfg.explain)
         if self.cfg.thinking:  # demo: reasoning first, then the JSON (no forced prefix / first-token policy)
             t0 = time.perf_counter()
             thinking, raw = split_thinking(self.generate(thinking_messages(messages), prefix=THINKING_PREFIX,
@@ -252,8 +253,9 @@ class VisionLanguageModel:
             raw = self.generate(messages, prefix=DECISION_PREFIX, logits_processor=policy)
         else:
             # The decision fields come first; stop before the free-text reason (~40% of the tokens).
-            raw = close_before_reason(self.generate(messages, prefix=DECISION_PREFIX, stop_strings=[REASON_KEY],
-                                                    logits_processor=policy))
+            stop = EXPLAIN_STOP if self.cfg.explain else REASON_KEY
+            raw = close_before_reason(self.generate(messages, prefix=DECISION_PREFIX, stop_strings=[stop],
+                                                    logits_processor=policy), stop)
         latency = time.perf_counter() - t0
         decision = parse_decision(raw, ego_speed_kmh, max_speed_kmh)
         if decision is not None:

@@ -213,6 +213,8 @@ class DrivingDecision:
     target_speed_kmh: float
     risk_level: RiskLevel = RiskLevel.LOW
     reason: str = ""
+    scene: str = ""  # explaining VLMs (vlm.explain): short scene description and the hazards that matter
+    hazards: str = ""
     source: str = "vlm"  # vlm | rules | safety
     frame_idx: int = -1
     timestamp_s: float = 0.0
@@ -233,13 +235,16 @@ class DrivingDecision:
 
     def target_dict(self) -> dict:
         """The fields the VLM is asked to produce, in output order (used as training target)."""
-        return {
+        d = {
             "longitudinal": self.longitudinal.value,
             "lateral": self.lateral.value,
             "target_speed_kmh": round(self.target_speed_kmh),
             "risk": self.risk_level.value,
-            "reason": self.reason,
         }
+        if self.scene or self.hazards:
+            d.update(scene=self.scene, hazards=self.hazards)
+        d["reason"] = self.reason
+        return d
 
 
 @dataclass
